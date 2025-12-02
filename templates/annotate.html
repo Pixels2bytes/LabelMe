@@ -8,6 +8,19 @@
             border: 2px solid black;
             cursor: crosshair;
         }
+
+        #boxList {
+            margin-top: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 6px 10px;
+            border: 1px solid #aaa;
+        }
     </style>
 </head>
 <body>
@@ -16,6 +29,17 @@
 
 <div id="canvasWrapper">
     <canvas id="drawingCanvas"></canvas>
+</div>
+
+<div id="boxList">
+    <h3>Bounding Boxes</h3>
+    <table id="boxesTable">
+        <tr>
+            <th>#</th>
+            <th>Coordinates</th>
+            <th>Label</th>
+        </tr>
+    </table>
 </div>
 
 <br>
@@ -63,18 +87,15 @@ canvas.onmouseup = (e) => {
     };
 
     boxes.push(box);
+    labels.push("");  // placeholder
+
     drawing = false;
     redraw();
-    
-    let label = prompt("Enter label for this box:");
-    labels.push(label);
-
-    
+    addBoxToTable(box);
 };
 
 function redraw() {
     ctx.drawImage(img, 0, 0);
-
     ctx.strokeStyle = "red";
     ctx.lineWidth = 2;
 
@@ -83,7 +104,32 @@ function redraw() {
     });
 }
 
+function addBoxToTable(box) {
+    const table = document.getElementById("boxesTable");
+
+    const row = table.insertRow(-1);
+    const idxCell = row.insertCell(0);
+    const coordCell = row.insertCell(1);
+    const labelCell = row.insertCell(2);
+
+    const id = boxes.length;
+
+    idxCell.innerText = id;
+
+    coordCell.innerText = `(${box.x1}, ${box.y1}, ${box.x2}, ${box.y2})`;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Enter label...";
+    input.oninput = (e) => {
+        labels[id - 1] = e.target.value;
+    };
+
+    labelCell.appendChild(input);
+}
+
 function submitBoxes() {
+    // ensure all boxes collected
     document.getElementById("boxesInput").value = JSON.stringify(boxes);
     document.getElementById("labelsInput").value = JSON.stringify(labels);
     document.getElementById("saveForm").submit();
