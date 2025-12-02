@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Draw Bounding Boxes</title>
+    <style>
+        #canvasWrapper { position: relative; }
+        #drawingCanvas {
+            border: 2px solid black;
+            cursor: crosshair;
+        }
+
+        #boxList {
+            margin-top: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 6px 10px;
+            border: 1px solid #aaa;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Draw Bounding Boxes for {{ filename }}</h2>
+
+<div id="canvasWrapper">
+    <canvas id="drawingCanvas"></canvas>
+</div>
+
+<div id="boxList">
+    <h3>Bounding Boxes</h3>
+    <table id="boxesTable">
+        <tr>
+            <th>#</th>
+            <th>Coordinates</th>
+            <th>Label</th>
+        </tr>
+    </table>
+</div>
+
+<br>
+<button onclick="submitBoxes()">Save to CSV</button>
+
+<form id="saveForm" method="POST">
+    <input type="hidden" name="boxes" id="boxesInput">
+    <input type="hidden" name="labels" id="labelsInput">
+</form>
+
+<script>
+const img = new Image();
+img.src = "/static/uploads/{{ filename }}";
+
+let canvas = document.getElementById("drawingCanvas");
+let ctx = canvas.getContext("2d");
+
+let boxes = [];
+let labels = [];
+let startX, startY, drawing = false;
+
+img.onload = function() {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+}
+
+canvas.onmousedown = (e) => {
+    startX = e.offsetX;
+    startY = e.offsetY;
+    drawing = true;
+};
+
+canvas.onmouseup = (e) => {
+    if (!drawing) return;
+
+    let endX = e.offsetX;
+    let endY = e.offsetY;
+
+    let box = {
+        x1: Math.min(startX, endX),
+        y1: Math.min(startY, endY),
+        x2: Math.max(startX, endX),
+        y2: Math.max(startY, endY)
+    };
+
+    boxes.push(box);
+    labels.push("");  // placeholder
+
+    drawing = false;
+    redraw();
+    addBoxToTable(box);
+};
+
+function redraw() {
+    ctx.drawImage(img, 0, 0);
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+
+    boxes.forEach(b => {
+        ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+    });
+}
+
+function addBoxToTable(box) {
+    const table = document.getElementById("boxesTable");
+
+    const row = table.insertRow(-1);
+    const idxCell = row.insertCell(0);
+    const coordCell = row.insertCell(1);
+    const labelCell = row.insertCell(2);
+
+    const id = boxes.length;
+
+    idxCell.innerText = id;
+
+    coordCell.innerText = `(${box.x1}, ${box.y1}, ${box.x2}, ${box.y2})`;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Enter label...";
+    input.oninput = (e) => {
+        labels[id - 1] = e.target.value;
+    };
+
+    labelCell.appendChild(input);
+}
+
+function submitBoxes() {
+    // ensure all boxes collected
+    document.getElementById("boxesInput").value = JSON.stringify(boxes);
+    document.getElementById("labelsInput").value = JSON.stringify(labels);
+    document.getElementById("saveForm").submit();
+}
+</script>
+
+</body>
+</html>
