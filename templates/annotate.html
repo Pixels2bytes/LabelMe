@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Draw Bounding Boxes</title>
+    <style>
+        #canvasWrapper { position: relative; }
+        #drawingCanvas {
+            border: 2px solid black;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Draw Bounding Boxes for {{ filename }}</h2>
+
+<div id="canvasWrapper">
+    <canvas id="drawingCanvas"></canvas>
+</div>
+
+<br>
+<button onclick="submitBoxes()">Save to CSV</button>
+
+<form id="saveForm" method="POST">
+    <input type="hidden" name="boxes" id="boxesInput">
+    <input type="hidden" name="labels" id="labelsInput">
+</form>
+
+<script>
+const img = new Image();
+img.src = "/static/uploads/{{ filename }}";
+
+let canvas = document.getElementById("drawingCanvas");
+let ctx = canvas.getContext("2d");
+
+let boxes = [];
+let labels = [];
+let startX, startY, drawing = false;
+
+img.onload = function() {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+}
+
+canvas.onmousedown = (e) => {
+    startX = e.offsetX;
+    startY = e.offsetY;
+    drawing = true;
+};
+
+canvas.onmouseup = (e) => {
+    if (!drawing) return;
+
+    let endX = e.offsetX;
+    let endY = e.offsetY;
+
+    let box = {
+        x1: Math.min(startX, endX),
+        y1: Math.min(startY, endY),
+        x2: Math.max(startX, endX),
+        y2: Math.max(startY, endY)
+    };
+
+    boxes.push(box);
+    drawing = false;
+    redraw();
+    
+    let label = prompt("Enter label for this box:");
+    labels.push(label);
+
+    
+};
+
+function redraw() {
+    ctx.drawImage(img, 0, 0);
+
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+
+    boxes.forEach(b => {
+        ctx.strokeRect(b.x1, b.y1, b.x2 - b.x1, b.y2 - b.y1);
+    });
+}
+
+function submitBoxes() {
+    document.getElementById("boxesInput").value = JSON.stringify(boxes);
+    document.getElementById("labelsInput").value = JSON.stringify(labels);
+    document.getElementById("saveForm").submit();
+}
+</script>
+
+</body>
+</html>
