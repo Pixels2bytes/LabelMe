@@ -146,6 +146,7 @@ venv.bak/
 
 # Folders
 /static
+/dataset
 
 # Files
 annotations.csv
