@@ -35,11 +35,21 @@
 </div>
 
 <br>
-<button onclick="submitBoxes()">Save to CSV</button>
 
-<form id="saveForm" method="POST">
+<!-- Save button -->
+<button type="button" onclick="submitBoxes()">Save to CSV</button>
+
+<!-- ADDED: No Detections button -->
+<button type="button" onclick="submitNoDetections()" style="margin-left: 10px; background-color: #f88;">
+    No Detections
+</button>
+
+<form id="saveForm" method="POST" action="">
     <input type="hidden" name="boxes" id="boxesInput">
     <input type="hidden" name="labels" id="labelsInput">
+
+    <!-- ADDED: flag so Flask knows not to save -->
+    <input type="hidden" name="no_detections" id="noDetectionsFlag" value="0">
 </form>
 
 <script>
@@ -79,7 +89,7 @@ canvas.onmouseup = (e) => {
     };
 
     boxes.push(box);
-    labels.push("");  // placeholder
+    labels.push("");
 
     drawing = false;
     redraw();
@@ -125,8 +135,27 @@ function addBoxToTable(box) {
 }
 
 function submitBoxes() {
+    if (boxes.length === 0) {
+        alert("No boxes drawn!");
+        return;
+    }
+
+    labels = labels.map((l, i) => l || `label${i+1}`);
+
     document.getElementById("boxesInput").value = JSON.stringify(boxes);
     document.getElementById("labelsInput").value = JSON.stringify(labels);
+
+    // Ensure it's NOT the no-detections path
+    document.getElementById("noDetectionsFlag").value = "0";
+
+    document.getElementById("saveForm").submit();
+}
+
+
+function submitNoDetections() {
+    document.getElementById("boxesInput").value = "[]";
+    document.getElementById("labelsInput").value = "[]";
+    document.getElementById("noDetectionsFlag").value = "1";
     document.getElementById("saveForm").submit();
 }
 </script>
