@@ -1,0 +1,21 @@
+{
+    "VIDEO_STREAM": "resources/test_files/The-iPhone-16-Pro-Review-for-Photographe_Media.mp4",
+    "FRAME_CAPTURE_RATE": 2,
+    "FRAME_TARGET_WIDTH": 1280,
+    "MAX_FRAMES": 600,
+    "MAX_BASE64_SIZE": 20971520,
+    "AI_MODEL": "gemini-robotics-er-1.5-preview",
+    "AI_MODEL_PREFERENCE": "gemini-robotics-er-1.5-preview",
+    "MAX_TOKENS": 120000,
+    "MAX_VID_SAMPLES": 40,
+    "START_FRAME": 0,
+    "END_FRAME": 0,
+    "RESIZE_FRAMES": 100,
+    "SYSTEM_ROLE": "You are an expert in video analysis and pay attention to detail.",
+    "DEFAULT_PROMPT": "Find all guns and persons, if any. Return a JSON list of objects with 'name' and 'coordinates' fields.",
+    "AI_IMAGE_MODEL_FILE": "utils/ai_image_model_list.txt",
+    "REPORTS_DIR": "output/reports",
+    "FRAMES_DIR": "output/frames",
+    "PROMPT_LOGS_DIR": "output/prompt_logs",
+    "DEBUG_MODE": true
+}
