@@ -2,9 +2,10 @@ import os
 import csv
 from PIL import Image, ImageDraw
 
-UPLOAD_DIR = "static/uploads"
-ANNOTATED_DIR = "static/annotated"
-CSV_FILE = "annotations.csv"
+OUTPUT_FOLDER = "dataset"
+IMAGE_FOLDER = f"{OUTPUT_FOLDER}/images"
+ANNOTATED_DIR = f"{OUTPUT_FOLDER}/annotated_images"
+CSV_FILE = f"{OUTPUT_FOLDER}/annotations.csv"
 
 os.makedirs(ANNOTATED_DIR, exist_ok=True)
 
@@ -29,7 +30,7 @@ def draw_boxes():
 
     # Process each image with boxes
     for fname, items in annotations.items():
-        img_path = os.path.join(UPLOAD_DIR, fname)
+        img_path = os.path.join(IMAGE_FOLDER, fname)
 
         if not os.path.exists(img_path):
             print(f"Skipping missing file: {fname}")

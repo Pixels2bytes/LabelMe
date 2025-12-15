@@ -8,19 +8,9 @@
             border: 2px solid black;
             cursor: crosshair;
         }
-
-        #boxList {
-            margin-top: 20px;
-        }
-
-        table {
-            border-collapse: collapse;
-        }
-
-        th, td {
-            padding: 6px 10px;
-            border: 1px solid #aaa;
-        }
+        #boxList { margin-top: 20px; }
+        table { border-collapse: collapse; }
+        th, td { padding: 6px 10px; border: 1px solid #aaa; }
     </style>
 </head>
 <body>
@@ -37,17 +27,29 @@
         <tr>
             <th>#</th>
             <th>Coordinates</th>
+            <th>Box Width</th>
+            <th>Box Height</th>
             <th>Label</th>
         </tr>
     </table>
 </div>
 
 <br>
-<button onclick="submitBoxes()">Save to CSV</button>
 
-<form id="saveForm" method="POST">
+<!-- Save button -->
+<button type="button" onclick="submitBoxes()">Save to CSV</button>
+
+<!-- ADDED: No Detections button -->
+<button type="button" onclick="submitNoDetections()" style="margin-left: 10px; background-color: #f88;">
+    No Detections
+</button>
+
+<form id="saveForm" method="POST" action="">
     <input type="hidden" name="boxes" id="boxesInput">
     <input type="hidden" name="labels" id="labelsInput">
+
+    <!-- ADDED: flag so Flask knows not to save -->
+    <input type="hidden" name="no_detections" id="noDetectionsFlag" value="0">
 </form>
 
 <script>
@@ -87,7 +89,7 @@ canvas.onmouseup = (e) => {
     };
 
     boxes.push(box);
-    labels.push("");  // placeholder
+    labels.push("");
 
     drawing = false;
     redraw();
@@ -106,17 +108,22 @@ function redraw() {
 
 function addBoxToTable(box) {
     const table = document.getElementById("boxesTable");
-
     const row = table.insertRow(-1);
+
     const idxCell = row.insertCell(0);
     const coordCell = row.insertCell(1);
-    const labelCell = row.insertCell(2);
+    const widthCell = row.insertCell(2);
+    const heightCell = row.insertCell(3);
+    const labelCell = row.insertCell(4);
 
     const id = boxes.length;
+    const boxWidth = box.x2 - box.x1;
+    const boxHeight = box.y2 - box.y1;
 
     idxCell.innerText = id;
-
     coordCell.innerText = `(${box.x1}, ${box.y1}, ${box.x2}, ${box.y2})`;
+    widthCell.innerText = boxWidth;
+    heightCell.innerText = boxHeight;
 
     const input = document.createElement("input");
     input.type = "text";
@@ -124,14 +131,31 @@ function addBoxToTable(box) {
     input.oninput = (e) => {
         labels[id - 1] = e.target.value;
     };
-
     labelCell.appendChild(input);
 }
 
 function submitBoxes() {
-    // ensure all boxes collected
+    if (boxes.length === 0) {
+        alert("No boxes drawn!");
+        return;
+    }
+
+    labels = labels.map((l, i) => l || `label${i+1}`);
+
     document.getElementById("boxesInput").value = JSON.stringify(boxes);
     document.getElementById("labelsInput").value = JSON.stringify(labels);
+
+    // Ensure it's NOT the no-detections path
+    document.getElementById("noDetectionsFlag").value = "0";
+
+    document.getElementById("saveForm").submit();
+}
+
+
+function submitNoDetections() {
+    document.getElementById("boxesInput").value = "[]";
+    document.getElementById("labelsInput").value = "[]";
+    document.getElementById("noDetectionsFlag").value = "1";
     document.getElementById("saveForm").submit();
 }
 </script>

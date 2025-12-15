@@ -145,7 +145,11 @@ env.bak/
 venv.bak/
 
 # Folders
+/static
+/dataset
 
+# Files
+annotations.csv
 
 # Spyder project settings
 .spyderproject
