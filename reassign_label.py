@@ -39,7 +39,7 @@ def reassign_labels(file_path, assign_index):
 
 
 def main():
-    file_path = "C:/Users/Ganbarou/Desktop/smartphones/labels" # YOLO_TRAIN_FOLDER
+    file_path = f"{YOLO_TRAIN_FOLDER}" # Path folder here to YOLO text files
     reassign_labels(file_path, assign_index)
 
     return print("Label reassignment complete.")
