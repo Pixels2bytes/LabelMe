@@ -14,7 +14,7 @@ IMAGE_FOLDER = f"{OUTPUT_FOLDER}/images"
 IMAGE_TRAIN_FOLDER = f"{IMAGE_FOLDER}/train"
 CSV_FILE = f"{OUTPUT_FOLDER}/annotations.csv"
 
-RENAME_BASE = "weapons"
+RENAME_BASE = "smartphones"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -56,6 +56,11 @@ def upload_page():
             old_name, ext = os.path.splitext(filename)
             filename = make_unique_name(UPLOAD_FOLDER, old_name, ext)
             save_path = os.path.join(UPLOAD_FOLDER, filename)
+
+            # Check if the image mode is RGBA or P (palette, which can also have transparency)
+            if img.mode in ("RGBA", "P"):
+                # Convert to RGB mode
+                img = img.convert("RGB")
             img.save(save_path)
 
             session['queue'].append(filename)
@@ -97,6 +102,10 @@ def annotate_page(filename):
         dataset_path = os.path.join(IMAGE_FOLDER, new_name)
         train_path = os.path.join(IMAGE_TRAIN_FOLDER, new_name)
 
+        # Check if the image mode is RGBA or P (palette, which can also have transparency)
+        if img.mode in ("RGBA", "P"):
+            # Convert to RGB mode
+            img = img.convert("RGB")
         img.save(dataset_path)
         img.save(train_path)
 
