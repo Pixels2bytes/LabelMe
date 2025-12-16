@@ -107,7 +107,7 @@ def annotate_page(filename):
             # Convert to RGB mode
             img = img.convert("RGB")
         img.save(dataset_path)
-        img.save(train_path)
+        # img.save(train_path)
 
         with open(CSV_FILE, 'a', newline='') as f:
             writer = csv.writer(f)
