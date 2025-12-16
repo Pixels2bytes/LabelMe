@@ -86,7 +86,7 @@ for row in rows:
     h_norm = max(0, min(1, h_norm))
 
     txt_filename = os.path.splitext(filename)[0] + ".txt"
-    txt_path = os.path.join(YOLO_TRAIN_FOLDER, txt_filename)
+    txt_path = os.path.join(LABELS_FOLDER, txt_filename)
 
     with open(txt_path, "a") as yolo_f:
         yolo_f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {w_norm:.6f} {h_norm:.6f}\n")
@@ -119,24 +119,53 @@ print(f"YOLO files: {YOLO_TRAIN_FOLDER}")
 print(f"COCO file: {OUTPUT_FOLDER}")
 
 
+# Create train/val images by spiltting 30% of images in image folder into val folder and copying the 70% into train folder
 duplicate_percent=0.3
 
-files = [f for f in os.listdir(IMAGE_TRAIN_FOLDER) if os.path.isfile(os.path.join(IMAGE_TRAIN_FOLDER, f))]
-    
-# Number to duplicate
-num_to_duplicate = int(len(files) * duplicate_percent)
+# Get all image files
+files = [
+    f for f in os.listdir(IMAGE_FOLDER)
+    if os.path.isfile(os.path.join(IMAGE_FOLDER, f))
+]
 
-# Pick random subset
-selected_files = random.sample(files, num_to_duplicate)
+# Shuffle files
+random.shuffle(files)
 
-for f in selected_files:
-    img_src = os.path.join(IMAGE_TRAIN_FOLDER, f)
+# Split index
+split_index = int(len(files) * duplicate_percent)
+
+val_files = files[:split_index]
+train_files = files[split_index:]
+
+# Copy Train Files
+for f in train_files:
+    # Image
+    img_src = os.path.join(IMAGE_FOLDER, f)
+    img_dst = os.path.join(IMAGE_TRAIN_FOLDER, f)
+    shutil.copy(img_src, img_dst)
+
+    # Label
+    txt_file = os.path.splitext(f)[0] + ".txt"
+    yolo_src = os.path.join(LABELS_FOLDER, txt_file)
+    yolo_dst = os.path.join(YOLO_TRAIN_FOLDER, txt_file)
+
+    if os.path.exists(yolo_src):
+        shutil.copy(yolo_src, yolo_dst)
+
+# Copy Val Files
+for f in val_files:
+    # Image
+    img_src = os.path.join(IMAGE_FOLDER, f)
     img_dst = os.path.join(IMAGE_VAL_FOLDER, f)
     shutil.copy(img_src, img_dst)
 
+    # Label
     txt_file = os.path.splitext(f)[0] + ".txt"
-    yolo_src = os.path.join(YOLO_TRAIN_FOLDER, txt_file)
+    yolo_src = os.path.join(LABELS_FOLDER, txt_file)
     yolo_dst = os.path.join(YOLO_VAL_FOLDER, txt_file)
-    shutil.copy(yolo_src, yolo_dst)
 
-print(f"Duplicated {num_to_duplicate} files into {YOLO_VAL_FOLDER}")
+    if os.path.exists(yolo_src):
+        shutil.copy(yolo_src, yolo_dst)
+
+print(f"Train images: {len(train_files)}")
+print(f"Val images: {len(val_files)}")
