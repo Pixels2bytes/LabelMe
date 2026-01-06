@@ -1,5 +1,7 @@
 {
     "VIDEO_STREAM": "resources/test_files/The-iPhone-16-Pro-Review-for-Photographe_Media.mp4",
+    "DATASET_CSV": "resources/yoloweapons_detection_model",
+    "IMAGE_DIR": "resources/frames",
     "FRAME_CAPTURE_RATE": 2,
     "FRAME_TARGET_WIDTH": 1280,
     "MAX_FRAMES": 600,

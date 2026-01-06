@@ -135,6 +135,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+utils/
 .env
 .envrc
 .venv
@@ -149,6 +150,8 @@ venv.bak/
 /dataset
 
 # Files
+output/
+resources/
 annotations.csv
 
 # Spyder project settings
