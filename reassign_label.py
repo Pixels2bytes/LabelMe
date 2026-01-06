@@ -8,7 +8,9 @@ LABELS_FOLDER = f"{OUTPUT_FOLDER}/labels"
 YOLO_TRAIN_FOLDER = f"{LABELS_FOLDER}/train"
 
 assign_index = {
-    '0': 81, # original label index 'person': 0 reassigned to 'smartphone': 81 index
+    #'0': 0, # original label index 'person': 0 stays the same
+    #'80': 1, # 'gun': 81 index reassigned to original label index 'bicycle': 1  
+    #'81': 2, # smartphone': 82 index reassigned to original label index 'car': 2
 }
 
 def reassign_labels(file_path, assign_index):

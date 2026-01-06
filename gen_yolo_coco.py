@@ -26,10 +26,10 @@ os.makedirs(IMAGE_VAL_FOLDER, exist_ok=True)
 
 assign_index = {
     'person': 0,
-    # 'gun': 80,
-    'smartphone': 81,
-    # 'machinegun': 82,
-    # 'knife': 83
+    # 'gun': 1,
+    'smartphone': 2,
+    # 'machinegun': 3,
+    # 'knife': 4
 }
 
 rows = []
