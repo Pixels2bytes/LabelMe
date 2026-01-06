@@ -1,8 +1,10 @@
 import csv
 import cv2
 import re
+import os
 from collections import defaultdict
 from main_utils import load_config
+
 
 def parse_index(frame_name: str) -> int:
     frame_name = frame_name.replace(",", "").strip()
@@ -10,10 +12,7 @@ def parse_index(frame_name: str) -> int:
 
 
 def parse_coords(coord_str: str):
-    pattern = re.compile(
-        r"(.+?)\s+\d+\s+\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)"
-    )
-
+    pattern = re.compile(r"(.+?)\s+\d+\s+\((\d+),\s*(\d+),\s*(\d+),\s*(\d+)\)")
     detections = []
     for match in pattern.finditer(coord_str):
         label, x1, y1, x2, y2 = match.groups()
@@ -50,7 +49,7 @@ def draw_detections(frame, detections, class_colors=None):
         label = det["label"]
         conf = det["confidence"]
 
-        if label in ["gun", "smartphone", "person"]: # Only draw specified labels
+        if label in ["gun", "smartphone", "person"]:
             color = (0, 255, 0)
             if class_colors and label in class_colors:
                 color = class_colors[label]
@@ -69,12 +68,7 @@ def draw_detections(frame, detections, class_colors=None):
             )
 
 
-def create_video(
-    video_path: str,
-    csv_path: str,
-    output_path: str,
-    class_colors=None
-):
+def create_video(video_path: str,csv_path: str,output_path: str,class_colors=None):
     detections_by_frame = load_detects(csv_path)
 
     cap = cv2.VideoCapture(video_path)
@@ -97,14 +91,12 @@ def create_video(
         if not ret:
             break
 
-        # Draw detections for this frame
         draw_detections(
             frame,
             detections_by_frame.get(frame_idx, []),
             class_colors
         )
 
-        # Optional frame counter
         cv2.putText(
             frame,
             f"Frame: {frame_idx}",
@@ -122,12 +114,98 @@ def create_video(
     out.release()
 
 
+
+def numeric_sort(filename: str) -> int:
+    name = os.path.splitext(filename)[0]
+    return int(name.split("_")[-1])
+
+
+def load_yolo_txt(label_path: str,img_w: int,img_h: int,class_map: dict):
+    detections = []
+
+    if not os.path.exists(label_path):
+        return detections
+
+    with open(label_path, "r") as f:
+        for line in f:
+            cls, cx, cy, w, h = map(float, line.split())
+
+            x1 = int((cx - w / 2) * img_w)
+            y1 = int((cy - h / 2) * img_h)
+            x2 = int((cx + w / 2) * img_w)
+            y2 = int((cy + h / 2) * img_h)
+
+            detections.append({
+                "label": class_map[int(cls)],
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "confidence": 1.0
+            })
+
+    return detections
+
+
+def create_video_from_dataset(
+    image_dir: str,
+    label_dir: str,
+    output_path: str,
+    class_map: dict,
+    class_colors=None,
+    fps: int = 10
+):
+    image_files = sorted(
+        [f for f in os.listdir(image_dir) if f.endswith((".jpg", ".png"))],
+        key=numeric_sort
+    )
+
+    first_frame = cv2.imread(os.path.join(image_dir, image_files[0]))
+    height, width = first_frame.shape[:2]
+
+    out = cv2.VideoWriter(
+        output_path,
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height)
+    )
+
+    frame_idx = 0
+
+    for img_name in image_files:
+        img_path = os.path.join(image_dir, img_name)
+        label_path = os.path.join(
+            label_dir,
+            os.path.splitext(img_name)[0] + ".txt"
+        )
+
+        frame = cv2.imread(img_path)
+        detections = load_yolo_txt(label_path, width, height, class_map)
+
+        draw_detections(frame, detections, class_colors)
+
+        cv2.putText(
+            frame,
+            f"Frame: {frame_idx}",
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            (255, 255, 255),
+            2
+        )
+
+        out.write(frame)
+        frame_idx += 1
+
+    out.release()
+
+
 def video_annon_process():
     config = load_config("config.json")
-    video_stream = config.get["VIDEO_STREAM"]
+    video_stream = config.get("VIDEO_STREAM")
 
-    CSV_PATH = "annotations.csv"
-    OUTPUT_PATH = "annotated_output.mp4"
+    csv_path = "annotations.csv"
+    output_path = "annotated_output.mp4"
 
     CLASS_COLORS = {
         "person": (0, 255, 0),
@@ -135,13 +213,44 @@ def video_annon_process():
         "gun": (255, 0, 0),
     }
 
-    create_video(video_stream, CSV_PATH, OUTPUT_PATH, CLASS_COLORS)
+    create_video(video_stream, csv_path, output_path, CLASS_COLORS)
 
-    return print("Annotated video saved to", OUTPUT_PATH)
-    
+    return print("Annotated video saved to", output_path)
+
+
+def dataset_annon_process():
+    config = load_config("config.json")
+
+    img_dir = config.get("IMAGE_DIR")
+    label_dir = config.get("LABEL_DIR")
+    output_path = "dataset_annotated.mp4"
+
+    CLASS_MAP = {
+        0: "person",
+        1: "gun",
+        2: "smartphone"
+    }
+
+    CLASS_COLORS = {
+        "person": (0, 255, 0),
+        "smartphone": (0, 0, 255),
+        "gun": (255, 0, 0),
+    }
+
+    create_video_from_dataset(
+        img_dir,
+        label_dir,
+        output_path,
+        CLASS_MAP,
+        CLASS_COLORS
+    )
+
+    return print("Dataset video saved to", output_path)
+
 
 def main():
-    msg = video_annon_process()
+    video_annon_process()
+    dataset_annon_process()
 
 
 if __name__ == "__main__":
