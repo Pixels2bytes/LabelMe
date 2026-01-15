@@ -25,9 +25,10 @@ if not os.path.exists(CSV_FILE):
     with open(CSV_FILE, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "file", "label", "coordinates",
-            "box_width", "box_height",
-            "image_width", "image_height"
+            "Frame", "Label", "Coordinates",
+            "Box Width", "Box Height",
+            "Image Width", "Image Height",
+            "Confidence"
         ])
 
 
@@ -125,7 +126,8 @@ def annotate_page(filename):
                     box_w,
                     box_h,
                     img_w,
-                    img_h
+                    img_h,
+                    1.0
                 ])
 
         if filename in queue:
