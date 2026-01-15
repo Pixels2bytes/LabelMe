@@ -2,7 +2,7 @@ import os
 import csv
 from PIL import Image, ImageDraw
 
-OUTPUT_FOLDER = "dataset"
+OUTPUT_FOLDER = "model output"
 IMAGE_FOLDER = f"{OUTPUT_FOLDER}/images"
 ANNOTATED_DIR = f"{OUTPUT_FOLDER}/annotated_images"
 CSV_FILE = f"{OUTPUT_FOLDER}/annotations.csv"
@@ -15,6 +15,14 @@ def parse_coordinates(coord_str):
     x1, y1, x2, y2 = coord_str.split(",")
     return int(x1), int(y1), int(x2), int(y2)
 
+
+def parse_conf(conf_str):
+    # "[conf1, conf2]" → list of floats
+    conf_str = conf_str.replace("[", "").replace("]", "")
+    confs = conf_str.split(",")
+    return [float(c) for c in confs]
+
+
 def draw_boxes():
     # Read annotations into memory
     annotations = {}
@@ -22,11 +30,13 @@ def draw_boxes():
     with open(CSV_FILE, "r", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            fname = row["file"]
-            label = row["label"]
-            coords = parse_coordinates(row["coordinates"])
+            print(row)
+            fname = row["Frame"]
+            coords = parse_coordinates(row["Coordinates"])
+            labels = row["Label"]
+            confs = parse_conf(row["Confidence"])
 
-            annotations.setdefault(fname, []).append((label, coords))
+            annotations.setdefault(fname, []).append((labels, coords, confs))
 
     # Process each image with boxes
     for fname, items in annotations.items():
@@ -39,12 +49,12 @@ def draw_boxes():
         img = Image.open(img_path)
         draw = ImageDraw.Draw(img)
 
-        for label, (x1, y1, x2, y2) in items:
+        for label, (x1, y1, x2, y2), conf in items:
             # Draw box
             draw.rectangle([x1, y1, x2, y2], outline="red", width=3)
 
             # Draw label background + text
-            text = str(label)
+            text = f"{str(label)} {str(conf)}"
             text_width = draw.textlength(text)
             text_height = 14
             draw.rectangle([x1, y1 - text_height, x1 + text_width + 4, y1], fill="red")
@@ -55,6 +65,11 @@ def draw_boxes():
 
         print(f"Saved annotated image: {save_path}")
 
+    return
+
+
+def main():
+    draw_boxes()
 
 if __name__ == "__main__":
-    draw_boxes()
+    main()

@@ -147,8 +147,12 @@ venv.bak/
 # Folders
 /static
 /dataset
+/model output
+/utils
 
 # Files
+output/
+resources/
 annotations.csv
 
 # Spyder project settings
