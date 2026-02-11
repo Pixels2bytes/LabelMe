@@ -17,6 +17,7 @@ import vertexai
 
 USE_VERTEX = True  # Flip to False for API key mode
 MODEL_ID = "gemini-robotics-er-1.5-preview"
+# MODEL_ID = "gemini-1.5-pro" In case preview model is unavailable, can switch to Gemini 1.5 Pro
 
 if USE_VERTEX:
     # Load Vertex AI environment
