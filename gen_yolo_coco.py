@@ -4,7 +4,7 @@ import os
 import random
 import shutil
 
-OUTPUT_FOLDER = "dataset"
+OUTPUT_FOLDER = "model dataset"
 LABELS_FOLDER = f"{OUTPUT_FOLDER}/labels"
 YOLO_TRAIN_FOLDER = f"{LABELS_FOLDER}/train"
 YOLO_VAL_FOLDER = f"{LABELS_FOLDER}/val"
@@ -26,10 +26,10 @@ os.makedirs(IMAGE_VAL_FOLDER, exist_ok=True)
 
 assign_index = {
     'person': 0,
-    # 'gun': 1,
+    'gun': 1,
     'smartphone': 2,
-    # 'machinegun': 3,
-    # 'knife': 4
+    'hand': 3,
+    'knife': 4
 }
 
 rows = []
@@ -54,8 +54,9 @@ images_added = set()
 ann_id = 1
 
 for row in rows:
-    filename = row["file"]
-    label = row["label"]
+    filename = row["Frame"]
+    label = row["Label"]
+    
 
     if label not in assign_index:
         print(f"WARNING: Label [ {label} ] not in assign_index\nSKIPPING . . .")
@@ -64,15 +65,15 @@ for row in rows:
     class_id = assign_index[label]
 
     # Parse bounding box
-    coords = row["coordinates"].replace("(", "").replace(")", "")
+    coords = row["Coordinates"].replace("(", "").replace(")", "")
+    """conf = row["Confidence"]"""
     x1, y1, x2, y2 = map(int, coords.split(","))
 
-    box_width = int(row["box_width"])
-    box_height = int(row["box_height"])
+    box_width = int(row["Box_Width"])
+    box_height = int(row["Box_Height"])
 
-    img_width = int(row["image_width"])
-    img_height = int(row["image_height"])
-
+    img_width = int(row["Image_Width"])
+    img_height = int(row["Image_Height"])
     # YOLO format: class_id x_center y_center width height (all normalized)
     x_center = (x1 + box_width / 2) / img_width
     y_center = (y1 + box_height / 2) / img_height
