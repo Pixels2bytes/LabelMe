@@ -5,22 +5,31 @@ import json
 import cv2
 import numpy as np
 import time
+import shutil
+import csv
 from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from google.genai.errors import ServerError
 from pathlib import Path
+import vertexai
 
-# Load Environment Keys
-load_dotenv(dotenv_path="utils/.env")
-
-# Load configuration to get YOLO settings
-#api_key = os.environ.get("GEMINI_API_KEY")
-
-# Initialize the GenAI client and specify the model
+USE_VERTEX = True  # Flip to False for API key mode
 MODEL_ID = "gemini-robotics-er-1.5-preview"
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# MODEL_ID = "gemini-1.5-pro" In case preview model is unavailable, can switch to Gemini 1.5 Pro
+
+if USE_VERTEX:
+    # Load Vertex AI environment
+    vertexai.init(project="ProjectNameHere", location="LocationHere")
+
+    client = genai.Client(vertexai=True, project="ProjectNameHere", location="LocationHere")
+else:
+    # Load API Environment Keys
+    load_dotenv(dotenv_path="utils/.env")
+
+    # Initialize the GenAI client and specify the model
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 # Pricing for Gemini Robotics ER 1.5 Preview (adjust based on actual pricing)
 # Estimated pricing per 1M tokens
@@ -29,31 +38,27 @@ OUTPUT_PRICE_PER_1M = 0.0  # Update with actual pricing
 
 # Prompt for weapons detection - Optimized for gun and person detection
 PROMPT = """
-Detect and identify all 'gun' and 'person' objects in this image.
+Detect and identify all 'gun', 'person', 'smartphone', 'knife', or 'hand' objects in this image.
 
 Instructions:
-1.  Identify all instances by class: "gun" or "person".
-2.  For "gun" detections, specify its status as "visible" or "concealed".
-3.  Provide tight bounding boxes for each detected object.
-4.  Assign a confidence score between 0.0 and 1.0 for each detection.
+1.  Identify all instances by class: "gun", "smartphone", "knife", "hand", or "person".
+2.  Provide tight bounding boxes for each detected object.
+3.  Assign a confidence score between 0.0 and 1.0 for each detection.
 
 Return ONLY a JSON array in this exact format, no code fencing, no additional text:
 [{"box_2d": [ymin, xmin, ymax, xmax], "label": "<label>", "status": "<status>", "confidence": <score>}]
 
 JSON Format Details:
-* label: Must be "gun" or "person".
-* status:
-    * For "gun": Set to "visible" or "concealed".
-    * For "person": Set to "n/a".
-* confidence: A float between 0.0 and 1.0 representing detection confidence.
+* label: Must be "gun", "smartphone", "knife", "hand", or "person".
+* Confidence: A float between 0.0 and 1.0 representing detection confidence.
 * Coordinates must be integers normalized to 0-1000 range.
 """
 
 PROMPT2 = """
-Detect and identify all 'gun', 'smartphone', and 'person' objects in this image.
+Detect and identify all 'gun', 'person', 'smartphone', 'knife', or 'hand' objects in this image.
 
 Instructions:
-1.  Identify all instances by class: "gun", "smartphone", "person".
+1.  Identify all instances by class: "gun", 'person', 'smartphone', 'knife', or 'hand'.
 2.  Provide tight bounding boxes for each detected object.
 3.  Assign a confidence score between 0.0 and 1.0 for each detection.
 
@@ -67,10 +72,10 @@ Example Output for No Detections:
 [], [], []
 
 CSV Format Details:
-* label: Must be "gun", "smartphone", or "person".
+* label: Must be "gun", "person", "smartphone", "knife", or "hand".
 * box_2d: List of four integers (ymin, xmin, ymax, xmax) representing bounding box coordinates.
 * confidence: A float between 0.0 and 1.0 representing detection confidence.
-* Coordinates must be integers.
+* Coordinates must be integers normalized to 0-1000 range.
 
 """
 
@@ -198,6 +203,30 @@ def detect_weapons(frame_bytes, max_retries=5):
     return []
 
 
+def write_detections_to_csv(writer, frame_name, detections, image_width, image_height):
+    """
+    Write each detection as a separate row in the CSV:
+    Frame, Label, Coordinates, Box Width, Box Height, Image Width, Image Height, Confidence
+    """
+    for det in detections:
+        box = det.get("box_2d", [])
+        label = det.get("label", "")
+        confidence = det.get("confidence", 0.0)
+
+        if not box or len(box) != 4 or not label:
+            continue
+
+        # Calculate box width and height
+        box_width = box[3] - box[1]
+        box_height = box[2] - box[0]
+
+        # Format coordinates as a string tuple "(ymin, xmin, ymax, xmax)"
+        coords_str = f"({box[0]}, {box[1]}, {box[2]}, {box[3]})"
+
+        # Write row
+        writer.writerow([frame_name, label, coords_str, f"{box_width}", f"{box_height}", f"{image_width}", f"{image_height}", f"{confidence:.2f}"])
+
+
 def draw_weapon_bboxes(frame, detections):
     """Draw bounding boxes on the frame with label and confidence."""
     height, width = frame.shape[:2]
@@ -206,6 +235,9 @@ def draw_weapon_bboxes(frame, detections):
     label_colors = {
         "gun": (0, 0, 255),  # Red for guns
         "person": (0, 255, 0),  # Green for persons
+        "smartphone": (255, 255, 0),  # Cyan for smartphones
+        "knife": (255, 0, 0),  # Blue for knives
+        "hand": (255, 0, 255),  # Purple for hands
     }
 
     # Draw each bounding box
@@ -269,6 +301,109 @@ def draw_weapon_bboxes(frame, detections):
             continue
 
     return frame
+
+
+def process_images_folder(dataset_images_folder, output_folder, output_images_folder):
+    """Process all images in a folder and save annotations + CSV."""
+    annotations_folder = f"{output_folder}/annotations"
+    json_folder = f"{output_folder}/json"
+    #json_path = f"{json_folder}/detections.json"
+
+    # Create necessary folders
+    os.makedirs(annotations_folder, exist_ok=True)
+    os.makedirs(json_folder, exist_ok=True)
+
+    if not dataset_images_folder:
+        print(f"Error: Images folder {dataset_images_folder} does not exist")
+        return
+
+    # Convert to Path object
+    images_path = Path(dataset_images_folder)
+
+    # Collect image files
+    image_extensions = [".jpg", ".jpeg", ".png", ".bmp"]
+    image_files = [f for f in images_path.iterdir() if f.suffix.lower() in image_extensions]
+    if not image_files:
+        print(f"No images found in {dataset_images_folder}")
+        return
+
+    print(f"Found {len(image_files)} images to process\n")
+
+    csv_path = f"{output_folder}/image_annotations.csv"
+    with open(csv_path, "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Frame", "Label", "Coordinates", "Box_Width", "Box_Height", "Image_Width", "Image_Height", "Confidence"])
+
+        for idx, img_file in enumerate(image_files, 1):
+            print(f"\nProcessing image {idx}/{len(image_files)}: {img_file.name}")
+
+            # Read image
+            frame = cv2.imread(str(img_file))
+            if frame is None:
+                print(f"Error reading {img_file.name}, skipping")
+                continue
+
+            # Encode to bytes for detection
+            success, buffer = cv2.imencode(".jpg", frame)
+            if not success:
+                print(f"Error encoding {img_file.name}, skipping")
+                continue
+            frame_bytes = buffer.tobytes()
+
+            # Detect objects
+            detections = detect_weapons(frame_bytes)
+
+            # Convert JSON to CSV format
+            write_detections_to_csv(writer, img_file.name, detections, frame.shape[1], frame.shape[0]) # frame.shape[1] = image width, frame.shape[0] = image height
+
+            # Draw bounding boxes
+            annotated_frame = draw_weapon_bboxes(frame.copy(), detections)
+
+            # Save annotated image
+            annotated_path = f"{annotations_folder}/{img_file.name}"
+            cv2.imwrite(annotated_path, annotated_frame)
+
+            # Copy original image to dataset images folder
+            shutil.copy(str(img_file), f"{output_images_folder}/{img_file.name}")
+
+            # Save detections to JSON (always save, even if no detections)
+            json_path = f"{json_folder}/{img_file.stem}.json"
+            """frames_with_detections = sum(1 for d in detections if d["num_detections"] > 0)
+            total_objects_detected = sum(d["num_detections"] for d in detections)"""
+            width = frame.shape[1]
+            height = frame.shape[0]
+
+            with open(json_path, "w") as f:
+                json.dump(
+                    {
+                        "metadata": {
+                            "image_name": img_file.name,
+                            "image_path": str(img_file),
+                            "resolution": f"{width}x{height}",
+                            "image_width": width,
+                            "image_height": height,
+                            "detections": detections,
+
+                            "processed_date": datetime.now().isoformat(),
+                        },
+                        "detections": detections,
+                    },
+                    f,
+                    indent=2,
+                )
+            """# Write detections to CSV
+            for det in detections:
+                box = det.get("box_2d", [])
+                label = det.get("label", "")
+                confidence = det.get("confidence", 0.0)
+                coords = f"{box}" if box else ""
+                writer.writerow([img_file.name, label, coords, confidence])"""
+
+    print(f"\nAll images processed. CSV saved to {csv_path}")
+    print(f"Annotated images saved to {annotations_folder}")
+    print(f"Original images copied to {output_images_folder}")
+
+    #return annotated_frame, csv_path, images_output_folder, annotations_folder
 
 
 def process_video(video_path, output_folder, frame_skip=1):
@@ -434,14 +569,26 @@ def process_videos_folder(videos_folder, output_folder, image_folder, frame_skip
     print(f"\n\nAll videos processed!")
 
 
-if __name__ == "__main__":
+def main():
+    """Main function to process videos and images"""
     # Configuration
-    OUTPUT_DIR = "model output"
-    IMAGE_FOLDER = f"{OUTPUT_DIR}/images"
-    VIDEOS_FOLDER = f"{OUTPUT_DIR}/videos"  # Folder containing your videos
+    OUTPUT_DIR = "model dataset"
+    INPUT_FOLDER = "resources/training_files"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(INPUT_FOLDER, exist_ok=True)
+    DATASET_IMAGES_FOLDER = f"{INPUT_FOLDER}/images" # Folder containing images to be labelled
+    VIDEOS_FOLDER = f"{INPUT_FOLDER}/videos"  # Folder containing videos to be labelled
     OUTPUT_FOLDER = f"{OUTPUT_DIR}/llm_detections"  # Folder to save results
+    OUTPUT_IMAGE_FOLDER = f"{OUTPUT_DIR}/images"
+    os.makedirs(DATASET_IMAGES_FOLDER, exist_ok=True)
+    os.makedirs(VIDEOS_FOLDER, exist_ok=True)
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+    os.makedirs(OUTPUT_IMAGE_FOLDER, exist_ok=True)
     FRAME_SKIP = 1  # Process every frame (set to 2 to process every other frame, etc.)
 
     # Process all videos in folder
-    process_videos_folder(VIDEOS_FOLDER, OUTPUT_FOLDER, IMAGE_FOLDER, FRAME_SKIP)
+    process_images_folder(DATASET_IMAGES_FOLDER, OUTPUT_FOLDER, OUTPUT_IMAGE_FOLDER)
+    #process_videos_folder(VIDEOS_FOLDER, OUTPUT_FOLDER, OUTPUT_IMAGE_FOLDER, FRAME_SKIP)
+
+if __name__ == "__main__":
+    main()

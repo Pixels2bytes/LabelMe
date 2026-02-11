@@ -127,7 +127,7 @@ def annotate_page(filename):
                     box_h,
                     img_w,
                     img_h,
-                    1.0
+                    1.00
                 ])
 
         if filename in queue:

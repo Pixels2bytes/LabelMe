@@ -1,3 +1,5 @@
+"""This script is used to create annotated videos from CSV or YOLO txt annotations."""
+
 import csv
 import cv2
 import re
