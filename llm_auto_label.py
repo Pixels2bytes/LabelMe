@@ -9,24 +9,31 @@ import shutil
 import csv
 from datetime import datetime
 from dotenv import load_dotenv
-from google import genai
 from google.genai import types
 from google.genai.errors import ServerError
 from pathlib import Path
+
+from utils import load_service_account
+PROJECT_NAME = "project-name"
+LOCATION = "location"
+load_dotenv(dotenv_path="utils/.env")
+load_service_account(PROJECT_NAME, os.getenv("VERTEX_SERVICE_ACCT"))
+
 import vertexai
+from google import genai
 
 USE_VERTEX = True  # Flip to False for API key mode
-MODEL_ID = "gemini-robotics-er-1.5-preview"
-# MODEL_ID = "gemini-1.5-pro" In case preview model is unavailable, can switch to Gemini 1.5 Pro
+#MODEL_ID = "gemini-robotics-er-1.5-preview"
+MODEL_ID = "gemini-3-pro-preview" #In case preview model is unavailable, can switch to Gemini 1.5 Pro
 
 if USE_VERTEX:
     # Load Vertex AI environment
-    vertexai.init(project="ProjectNameHere", location="LocationHere")
+    vertexai.init(project=PROJECT_NAME, location=LOCATION)
 
-    client = genai.Client(vertexai=True, project="ProjectNameHere", location="LocationHere")
+    client = genai.Client(vertexai=True, project=PROJECT_NAME, location=LOCATION)
 else:
     # Load API Environment Keys
-    load_dotenv(dotenv_path="utils/.env")
+    #load_dotenv(dotenv_path="utils/.env")
 
     # Initialize the GenAI client and specify the model
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -576,7 +583,7 @@ def main():
     INPUT_FOLDER = "resources/training_files"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     os.makedirs(INPUT_FOLDER, exist_ok=True)
-    DATASET_IMAGES_FOLDER = f"{INPUT_FOLDER}/images" # Folder containing images to be labelled
+    DATASET_IMAGES_FOLDER = f"{INPUT_FOLDER}/images" # Folder containing images to be labelled # testme" #images"
     VIDEOS_FOLDER = f"{INPUT_FOLDER}/videos"  # Folder containing videos to be labelled
     OUTPUT_FOLDER = f"{OUTPUT_DIR}/llm_detections"  # Folder to save results
     OUTPUT_IMAGE_FOLDER = f"{OUTPUT_DIR}/images"
