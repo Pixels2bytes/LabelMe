@@ -7,30 +7,39 @@ import numpy as np
 import time
 import shutil
 import csv
+import base64
 from datetime import datetime
 from dotenv import load_dotenv
 from google.genai import types
 from google.genai.errors import ServerError
 from pathlib import Path
-
 from utils import load_service_account
-PROJECT_NAME = "project-name"
-LOCATION = "location"
+
 load_dotenv(dotenv_path="utils/.env")
-load_service_account(PROJECT_NAME, os.getenv("VERTEX_SERVICE_ACCT"))
+PROJECT_NAME = os.getenv("PROJECT_NAME")
+LOCATION = os.getenv("LOCATION")
+
+USE_VERTEX = False  # Flip to False for API key mode
+USE_DITO = False  # Set to True to use DITO model from vertex, False to use Gemini
+MODEL_ID = "gemini-robotics-er-1.5-preview"
+# MODEL_ID = "gemini-3-pro-preview" #In case preview model is unavailable, can switch to Gemini 1.5 Pro
+LABEL_CLASSES = {"gun", "person", "smartphone", "knife", "hand"}
+
+if USE_VERTEX:
+    load_service_account(PROJECT_NAME, os.getenv("VERTEX_SERVICE_ACCT"))
 
 import vertexai
 from google import genai
 
-USE_VERTEX = True  # Flip to False for API key mode
-#MODEL_ID = "gemini-robotics-er-1.5-preview"
-MODEL_ID = "gemini-3-pro-preview" #In case preview model is unavailable, can switch to Gemini 1.5 Pro
+if USE_DITO:
+    MODEL_ID = "dito-1.0-preview"
+    USE_VERTEX = True  # DITO is only available via Vertex AI, so we force this to True if DITO is selected
 
 if USE_VERTEX:
     # Load Vertex AI environment
     vertexai.init(project=PROJECT_NAME, location=LOCATION)
 
-    client = genai.Client(vertexai=True, project=PROJECT_NAME, location=LOCATION)
+    client = genai.Client(vertexai=True, project=PROJECT_NAME, location=LOCATION, api_key=os.getenv("VERTEX_GEMINI_API_KEY"))
 else:
     # Load API Environment Keys
     #load_dotenv(dotenv_path="utils/.env")
@@ -127,7 +136,7 @@ class UsageTracker:
 tracker = UsageTracker()
 
 
-def detect_weapons(frame_bytes, max_retries=5):
+def gem_detect_weapons(frame_bytes, max_retries=5):
     """Detect weapons in a frame using Gemini Robotics model with retry logic."""
     retry_count = 0
     base_delay = 2  # Start with 2 seconds delay
@@ -205,6 +214,89 @@ def detect_weapons(frame_bytes, max_retries=5):
             time.sleep(delay)
         except Exception as e:
             print(f"\nUnexpected error: {e}")
+            return []
+
+    return []
+
+
+def dito_detect_weapons(frame_bytes, max_retries=5):
+    """Detect weapons in a frame using DITO model from Vertex AI with retry logic."""
+    retry_count = 0
+    base_delay = 2  # Start with 2 seconds delay
+
+    while retry_count <= max_retries:
+        try:
+            response = client.models.predict(
+                model=MODEL_ID,
+                instances_list = [
+                    {
+                        "image_jpeg_bytes_inputs": {
+                            "b64": base64.b64encode(frame_bytes).decode("utf-8")
+                        }
+                    }
+                ],
+            )
+            tracker.total_frames += 1
+            if not response or not hasattr(response, "predictions"):
+                print("Warning: Empty response from DITO")
+                return []
+
+            predictions = response.predictions
+            
+
+            if not predictions:
+                return []
+
+            detections = []
+
+            # DITO returns detections in standard OD format
+            pred = predictions[0]
+
+            boxes = pred.get("bboxes", [])
+            scores = pred.get("scores", [])
+            classes = pred.get("classes", [])
+
+            # Map DITO class names to required labels
+            valid_labels = LABEL_CLASSES
+
+            for box, score, cls in zip(boxes, scores, classes):
+
+                label = str(cls).lower()
+
+                if label not in valid_labels:
+                    continue
+
+                # DITO boxes are normalized 0-1 → convert to 0-1000
+                ymin = int(box[0] * 1000)
+                xmin = int(box[1] * 1000)
+                ymax = int(box[2] * 1000)
+                xmax = int(box[3] * 1000)
+
+                detections.append(
+                    {
+                        "box_2d": [ymin, xmin, ymax, xmax],
+                        "label": label,
+                        "status": "detected",
+                        "confidence": float(score),
+                    }
+                )
+
+            return detections
+
+        except ServerError as e:
+            retry_count += 1
+            if retry_count > max_retries:
+                print(f"\nMax retries ({max_retries}) reached. Skipping frame.")
+                return []
+
+            delay = base_delay * (2 ** (retry_count - 1))
+            print(
+                f"\nDITO API timeout/error (attempt {retry_count}/{max_retries}). Retrying in {delay}s..."
+            )
+            time.sleep(delay)
+
+        except Exception as e:
+            print(f"\nUnexpected DITO error: {e}")
             return []
 
     return []
@@ -357,8 +449,12 @@ def process_images_folder(dataset_images_folder, output_folder, output_images_fo
                 continue
             frame_bytes = buffer.tobytes()
 
-            # Detect objects
-            detections = detect_weapons(frame_bytes)
+            if USE_DITO:
+                # Detect objects from DITO model
+                detections = dito_detect_weapons(frame_bytes)
+            else:
+                # Detect objects from Gemini models
+                detections = gem_detect_weapons(frame_bytes)
 
             # Convert JSON to CSV format
             write_detections_to_csv(writer, img_file.name, detections, frame.shape[1], frame.shape[0]) # frame.shape[1] = image width, frame.shape[0] = image height
@@ -485,7 +581,7 @@ def process_video(video_path, output_folder, frame_skip=1):
         frame_bytes = buffer.tobytes()
 
         # Detect weapons
-        detections = detect_weapons(frame_bytes)
+        detections = gem_detect_weapons(frame_bytes)
 
         # Store detections (including frames with no detections)
         all_detections.append(
