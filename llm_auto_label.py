@@ -136,7 +136,7 @@ class UsageTracker:
 tracker = UsageTracker()
 
 
-def gem_detect_weapons(frame_bytes, max_retries=5):
+def gem_detect_weapons(frame_bytes, max_retries=2):
     """Detect weapons in a frame using Gemini Robotics model with retry logic."""
     retry_count = 0
     base_delay = 2  # Start with 2 seconds delay
@@ -422,6 +422,15 @@ def process_images_folder(dataset_images_folder, output_folder, output_images_fo
     # Collect image files
     image_extensions = [".jpg", ".jpeg", ".png", ".bmp"]
     image_files = [f for f in images_path.iterdir() if f.suffix.lower() in image_extensions]
+
+    # Sort files based on numbers in filename to ensure correct order (e.g., frame1.jpg, frame2.jpg, ..., frame10.jpg)
+    import re
+    def numerical_sort_key(path_obj):
+        numbers = re.findall(r'\d+', path_obj.stem)
+        return int(numbers[-1]) if numbers else 0
+
+    image_files = sorted(image_files, key=numerical_sort_key)
+
     if not image_files:
         print(f"No images found in {dataset_images_folder}")
         return
@@ -434,6 +443,13 @@ def process_images_folder(dataset_images_folder, output_folder, output_images_fo
         writer.writerow(["Frame", "Label", "Coordinates", "Box_Width", "Box_Height", "Image_Width", "Image_Height", "Confidence"])
 
         for idx, img_file in enumerate(image_files, 1):
+
+            # JSON check to skip already processed images
+            json_path = f"{json_folder}/{img_file.stem}.json"
+            if os.path.exists(json_path):
+                print(f"\nSkipping {img_file.name} (JSON already exists)")
+                continue
+
             print(f"\nProcessing image {idx}/{len(image_files)}: {img_file.name}")
 
             # Read image
@@ -470,7 +486,6 @@ def process_images_folder(dataset_images_folder, output_folder, output_images_fo
             shutil.copy(str(img_file), f"{output_images_folder}/{img_file.name}")
 
             # Save detections to JSON (always save, even if no detections)
-            json_path = f"{json_folder}/{img_file.stem}.json"
             """frames_with_detections = sum(1 for d in detections if d["num_detections"] > 0)
             total_objects_detected = sum(d["num_detections"] for d in detections)"""
             width = frame.shape[1]
