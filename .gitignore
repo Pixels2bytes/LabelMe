@@ -150,6 +150,7 @@ venv.bak/
 /model dataset
 /model output
 /utils
+/create dataset
 
 # Files
 output/

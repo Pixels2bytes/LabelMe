@@ -4,7 +4,11 @@ import os
 import random
 import shutil
 
-OUTPUT_FOLDER = "model dataset"
+INPUT_FOLDER = "model dataset"
+INPUT_IMAGE_FOLDER = f"resources/training_files/images/batcha"
+INPUT_CSV_FILE = f"{INPUT_FOLDER}/llm_detections/image_annotations_this.csv"
+
+OUTPUT_FOLDER = "dangerous_weapons"
 LABELS_FOLDER = f"{OUTPUT_FOLDER}/labels"
 YOLO_TRAIN_FOLDER = f"{LABELS_FOLDER}/train"
 YOLO_VAL_FOLDER = f"{LABELS_FOLDER}/val"
@@ -13,7 +17,7 @@ IMAGE_FOLDER = f"{OUTPUT_FOLDER}/images"
 IMAGE_TRAIN_FOLDER = f"{IMAGE_FOLDER}/train"
 IMAGE_VAL_FOLDER = f"{IMAGE_FOLDER}/val"
 
-CSV_FILE = f"{OUTPUT_FOLDER}/annotations.csv"
+CSV_FILE = f"{OUTPUT_FOLDER}/image_annotations_this.csv"
 COCO_FILE = f"{OUTPUT_FOLDER}/annotations_coco.json"
 
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -23,6 +27,9 @@ os.makedirs(YOLO_TRAIN_FOLDER, exist_ok=True)
 os.makedirs(YOLO_VAL_FOLDER, exist_ok=True)
 os.makedirs(IMAGE_TRAIN_FOLDER, exist_ok=True)
 os.makedirs(IMAGE_VAL_FOLDER, exist_ok=True)
+
+# Copy CSV file to output folder
+shutil.copy(INPUT_CSV_FILE, CSV_FILE)
 
 assign_index = {
     'person': 0,
@@ -65,8 +72,13 @@ for row in rows:
     class_id = assign_index[label]
 
     # Parse bounding box
-    coords = row["Coordinates"].replace("(", "").replace(")", "")
-    """conf = row["Confidence"]"""
+    coords = coords = (
+    row["Coordinates"]
+    .replace("(", "")
+    .replace(")", "")
+    .replace("[", "")
+    .replace("]", "")
+    )
     x1, y1, x2, y2 = map(int, coords.split(","))
 
     box_width = int(row["Box_Width"])
@@ -123,13 +135,19 @@ print(f"COCO file: {OUTPUT_FOLDER}")
 # Create train/val images by spiltting 30% of images in image folder into val folder and copying the 70% into train folder
 duplicate_percent=0.3
 
+# Copy all images from input image folder to output image folder
+for f in os.listdir(INPUT_IMAGE_FOLDER):
+    img_src = os.path.join(INPUT_IMAGE_FOLDER, f)
+    img_dst = os.path.join(IMAGE_FOLDER, f)
+    shutil.copy(img_src, img_dst)
+
 # Get all image files
 files = [
     f for f in os.listdir(IMAGE_FOLDER)
     if os.path.isfile(os.path.join(IMAGE_FOLDER, f))
 ]
 
-# Shuffle files
+# Shuffle output image folder files
 random.shuffle(files)
 
 # Split index
