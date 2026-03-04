@@ -1,6 +1,7 @@
 """Auto-label videos using Google Gemini Robotics ER 1.5 Preview model for object detection."""
 
 import os
+import re
 import json
 import cv2
 import numpy as np
@@ -687,6 +688,89 @@ def process_videos_folder(videos_folder, output_folder, image_folder, frame_skip
     print(f"\n\nAll videos processed!")
 
 
+def json_to_csv(json_folder, output_folder):
+    """Read all JSON detection files and write their contents into a single CSV file."""
+    if not os.path.exists(json_folder):
+        print(f"Error: JSON folder {json_folder} does not exist")
+        return
+
+    json_path_obj = Path(json_folder)
+
+    # Collect JSON files
+    json_files = [f for f in json_path_obj.iterdir() if f.suffix.lower() == ".json"]
+
+    # Sort numerically (frame1, frame2, frame10)
+    def numerical_sort_key(path_obj):
+        numbers = re.findall(r'\d+', path_obj.stem)
+        return int(numbers[-1]) if numbers else 0
+
+    json_files = sorted(json_files, key=numerical_sort_key)
+
+    if not json_files:
+        print(f"No JSON files found in {json_folder}")
+        return
+
+    csv_path = f"{output_folder}/image_annotations.csv"
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+
+        # Match your existing header exactly
+        writer.writerow([
+            "Frame",
+            "Label",
+            "Coordinates",
+            "Box_Width",
+            "Box_Height",
+            "Image_Width",
+            "Image_Height",
+            "Confidence"
+        ])
+
+        for idx, json_file in enumerate(json_files, 1):
+
+            print(f"Processing JSON {idx}/{len(json_files)}: {json_file.name}")
+
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            detections = data.get("detections", [])
+            metadata = data.get("metadata", {})
+
+            image_name = metadata.get("image_name", "")
+            image_width = metadata.get("image_width", 0)
+            image_height = metadata.get("image_height", 0)
+
+            for det in detections:
+
+                box = det.get("box_2d", [])
+                label = det.get("label", "")
+                confidence = det.get("confidence", 0.0)
+
+                if box and len(box) == 4:
+                    x1, y1, x2, y2 = box
+                    box_width = x2 - x1
+                    box_height = y2 - y1
+                    coords = f"{box}"
+                else:
+                    box_width = 0
+                    box_height = 0
+                    coords = ""
+
+                writer.writerow([
+                    image_name,
+                    label,
+                    coords,
+                    box_width,
+                    box_height,
+                    image_width,
+                    image_height,
+                    confidence
+                ])
+
+    print(f"\nCSV successfully created at {csv_path}")
+
+
 def main():
     """Main function to process videos and images"""
     # Configuration
@@ -707,6 +791,7 @@ def main():
     # Process all videos in folder
     process_images_folder(DATASET_IMAGES_FOLDER, OUTPUT_FOLDER, OUTPUT_IMAGE_FOLDER)
     #process_videos_folder(VIDEOS_FOLDER, OUTPUT_FOLDER, OUTPUT_IMAGE_FOLDER, FRAME_SKIP)
+    #json_to_csv(f"{OUTPUT_FOLDER}/json", OUTPUT_FOLDER)
 
 if __name__ == "__main__":
     main()
