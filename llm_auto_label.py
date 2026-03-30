@@ -421,7 +421,7 @@ def process_images_folder(dataset_images_folder, output_folder, output_images_fo
     images_path = Path(dataset_images_folder)
 
     # Collect image files
-    image_extensions = [".jpg", ".jpeg", ".png", ".bmp"]
+    image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".JPG", ".JPEG", ".PNG", ".BMP"]
     image_files = [f for f in images_path.iterdir() if f.suffix.lower() in image_extensions]
 
     # Sort files based on numbers in filename to ensure correct order (e.g., frame1.jpg, frame2.jpg, ..., frame10.jpg)
