@@ -137,7 +137,7 @@ class UsageTracker:
 tracker = UsageTracker()
 
 
-def gem_detect_weapons(frame_bytes, max_retries=2):
+def gem_detect_weapons(frame_bytes, model_id, prompt, max_retries=2):
     """Detect weapons in a frame using Gemini Robotics model with retry logic."""
     retry_count = 0
     base_delay = 2  # Start with 2 seconds delay
@@ -145,13 +145,13 @@ def gem_detect_weapons(frame_bytes, max_retries=2):
     while retry_count <= max_retries:
         try:
             response = client.models.generate_content(
-                model=MODEL_ID,
+                model=model_id,
                 contents=[
                     types.Part.from_bytes(
                         data=frame_bytes,
                         mime_type="image/jpeg",
                     ),
-                    PROMPT,
+                    prompt,
                 ],
                 config=types.GenerateContentConfig(
                     temperature=0.3,  # Lower temperature for more consistent detection
@@ -471,7 +471,7 @@ def process_images_folder(dataset_images_folder, output_folder, output_images_fo
                 detections = dito_detect_weapons(frame_bytes)
             else:
                 # Detect objects from Gemini models
-                detections = gem_detect_weapons(frame_bytes)
+                detections = gem_detect_weapons(frame_bytes, MODEL_ID, PROMPT)
 
             # Convert JSON to CSV format
             write_detections_to_csv(writer, img_file.name, detections, frame.shape[1], frame.shape[0]) # frame.shape[1] = image width, frame.shape[0] = image height
@@ -597,7 +597,7 @@ def process_video(video_path, output_folder, frame_skip=1):
         frame_bytes = buffer.tobytes()
 
         # Detect weapons
-        detections = gem_detect_weapons(frame_bytes)
+        detections = gem_detect_weapons(frame_bytes, MODEL_ID, PROMPT)
 
         # Store detections (including frames with no detections)
         all_detections.append(
