@@ -51,6 +51,24 @@ def scale_boxes(boxes, original_size, new_size):
     return scaled
 
 
+def scale_non_square(boxes, original_size, new_width, new_height):
+    scale_w = new_width / original_size
+    scale_h = new_height / original_size
+
+    scaled = []
+    for box in boxes:
+        x1, y1, x2, y2 = box
+
+        scaled.append([
+            x1 * scale_w,
+            y1 * scale_h,
+            x2 * scale_w,
+            y2 * scale_h
+        ])
+
+    return scaled
+
+
 def generate_tests(image_path, sizes, gt_boxes):
     img = Image.open(image_path).convert("RGB")
     original_size = img.size[0]  # square
@@ -97,7 +115,7 @@ def image_test_process():
     return output_path
 
 
-def draw_gtboxes(mapping_json_path:str, image_dir:str):
+def draw_gtboxes(mapping_json_path:str, image_dir:str, color:tuple, file_title:str="verify_box"):
     with open(mapping_json_path, "r", encoding="utf-8") as f:
         mapping = json.load(f)
 
@@ -115,14 +133,14 @@ def draw_gtboxes(mapping_json_path:str, image_dir:str):
         for box in data["scaled_boxes"]:
             x1, y1, x2, y2 = box
 
-            # Draw rectangle (red outline, thickness simulated)
+            # Draw rectangle (color outline, thickness simulated)
             for i in range(3):  # thickness
                 draw.rectangle(
                     [x1 - i, y1 - i, x2 + i, y2 + i],
-                    outline=(255, 0, 0)
+                    outline=color
                 )
 
-        verify_name = f"verify_box_{filename}"
+        verify_name = f"{file_title}_{filename}"
         save_path = os.path.join(image_dir, verify_name)
 
         img.save(save_path)
@@ -131,8 +149,9 @@ def draw_gtboxes(mapping_json_path:str, image_dir:str):
 
 
 def main():
+    color = (0, 255, 0)  # Green for GT boxes
     output_path = image_test_process()
-    draw_gtboxes(output_path, OUTPUT_DIR)
+    draw_gtboxes(output_path, OUTPUT_DIR, color)
 
 if __name__ == "__main__":
     main()
