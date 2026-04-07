@@ -1,7 +1,9 @@
+from collections import defaultdict
 import os
 import json
+from typing import List, Tuple
 import cv2
-import glob
+from glob import glob
 import numpy as np
 from datetime import datetime, time
 from dotenv import load_dotenv
@@ -11,15 +13,17 @@ from pathlib import Path
 from utils import load_service_account
 from prompts import img_ground_truth_prompt
 from schemas import test_llm_schema
+from verify_gt import scale_boxes, scale_non_square, draw_gtboxes
 
 
 gt_dir = "resources/ground_truth"
-llm_dir = f"{gt_dir}/llm_images test 10"
+trials_name = f"llm_images test *" # Main name and contains each test trial run
 gt_images_dir = f"{gt_dir}/gt_images"
 llm_map_path = f"{gt_dir}/size_reference_map test 10.json"
-gt_map_path = f"{gt_images_dir}/gt_mapping.json"
+gt_map_path = f"{gt_images_dir}/gt_mapping.json" # Ground truth mapping with scaled boxes for all image size variants
 pattern = os.path.join(gt_dir, "size_reference_map*.json") # Grab all test runs for averaging
 master_map_path = os.path.join(gt_dir, "final_scaling_map.json")
+llm_dir = f"{gt_dir}/llm_images"
 
 # Create necessary folders
 os.makedirs(gt_dir, exist_ok=True)
@@ -182,259 +186,139 @@ def load_gt_mapping(path):
         return json.load(f)
 
 
-def compute_transform(gt_box, pred_box):
-    x1g, y1g, x2g, y2g = gt_box
-    x1p, y1p, x2p, y2p = pred_box
-
-    sx = (x2p - x1p) / (x2g - x1g) # Scale X between GT and Pred
-    sy = (y2p - y1p) / (y2g - y1g) # Scale Y between GT and Pred
-
-    dx = x1p - (x1g * sx) # Shift X after scaling
-    dy = y1p - (y1g * sy) # Shift Y after scaling
-
-    return sx, sy, dx, dy
-
-
-def compare_transforms(gt_map_path, llm_dir, llm_map_path):
-    gt_data = load_gt_mapping(gt_map_path)
-    results = {}
-
-    for filename, data in gt_data["variants"].items():
-        gt_box = data["scaled_boxes"][0]  # only one box
-
-        json_name = filename.replace(".jpg", ".json")
-        llm_path = os.path.join(llm_dir, json_name)
-
-        if not os.path.exists(llm_path):
-            print(f"Missing LLM output for {filename}")
-            continue
-
-        with open(llm_path, "r", encoding="utf-8") as f:
-            llm_data = json.load(f)
-
-        detections = llm_data.get("detections", [])
-
-        if not detections:
-            print(f"No detection for {filename}")
-            continue
-
-        pred_box = detections[0]["bbox"]  # assume single detection
-
-        sx, sy, dx, dy = compute_transform(gt_box, pred_box)
-
-        size = data["size"]
-
-        results[size] = {
-            "sx": sx,
-            "sy": sy,
-            "dx": dx,
-            "dy": dy
-        }
-
-        print(f"\n{size}x{size}")
-        print(f"sx={sx:.4f}, sy={sy:.4f}, dx={dx:.2f}, dy={dy:.2f}")
-
-    with open(llm_map_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2)
-
-
-def load_all_maps():
-    files = glob.glob(pattern)
-
-    if not files:
-        print("No mapping files found.")
-        return []
-
-    print(f"Found {len(files)} mapping files")
-
-    maps = []
-    for fpath in files:
-        with open(fpath, "r", encoding="utf-8") as f:
-            maps.append(json.load(f))
-
-    return maps
-
-
-def average_maps(maps):
-    """
-    Averages sx, sy, dx, dy across all test runs per size
-    """
-    combined = {}
-
-    for m in maps:
-        for size, vals in m.items():
-            if size not in combined:
-                combined[size] = {"sx": [], "sy": [], "dx": [], "dy": []}
-
-            combined[size]["sx"].append(vals["sx"])
-            combined[size]["sy"].append(vals["sy"])
-            combined[size]["dx"].append(vals["dx"])
-            combined[size]["dy"].append(vals["dy"])
-
-    averaged = {}
-
-    for size, vals in combined.items():
-        averaged[size] = {
-            "sx": float(np.mean(vals["sx"])),
-            "sy": float(np.mean(vals["sy"])),
-            "dx": float(np.mean(vals["dx"])),
-            "dy": float(np.mean(vals["dy"])),
-        }
-
-    return averaged
-
-
-def compute_global_equation(averaged_map):
-    """
-    Converts sx, sy into kx/size form
-    """
-    kx_vals = []
-    ky_vals = []
-
-    for size, vals in averaged_map.items():
-        s = int(size)
-
-        kx_vals.append(vals["sx"] * s)
-        ky_vals.append(vals["sy"] * s)
-
-    kx = float(np.mean(kx_vals))
-    ky = float(np.mean(ky_vals))
-
-    return kx, ky
-
-
-def save_final_map(master_map_path, averaged_map, kx, ky):
-    output = {
-        "per_size": averaged_map,
-        "global_equation": {
-            "kx": kx,
-            "ky": ky,
-            "formula": "sx = kx / size, sy = ky / size"
-        }
-    }
-
-    with open(master_map_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2)
-
-    print(f"\nSaved final calibration → {master_map_path}")
-
-
-def correct_bbox(pred_box, image_size, calibration_data):
-    """
-    Applies correction to LLM predicted bounding box
-
-    Uses:
-    - per-size if available
-    - fallback to global equation
-    """
-
-    x1, y1, x2, y2 = pred_box
-
-    # Center + size
-    cx = (x1 + x2) / 2
-    cy = (y1 + y2) / 2
-    w = x2 - x1
-    h = y2 - y1
-
-    size_str = str(image_size)
-
-    # Use per-size calibration if exists
-    if size_str in calibration_data["per_size"]:
-        vals = calibration_data["per_size"][size_str]
-        sx = vals["sx"]
-        sy = vals["sy"]
-
-    else:
-        # fallback to equation
-        kx = calibration_data["global_equation"]["kx"]
-        ky = calibration_data["global_equation"]["ky"]
-
-        sx = kx / image_size
-        sy = ky / image_size
-
-    # Correct size
-    w_corr = w / sx
-    h_corr = h / sy
-
-    # Rebuild box
-    new_x1 = cx - w_corr / 2
-    new_y1 = cy - h_corr / 2
-    new_x2 = cx + w_corr / 2
-    new_y2 = cy + h_corr / 2
-
-    return [new_x1, new_y1, new_x2, new_y2]
-
-
-def create_equation(gt_map_path, llm_map_path, master_map_path):
-    """
-    Combines:
-    - Global equation (kx/ky)
-    - Per-size calibration (sx, sy, dx, dy)
-    - Variants with corrected boxes for draw_gtboxes
-    """
-
-    # Load LLM averaged map
-    with open(llm_map_path, "r", encoding="utf-8") as f:
-        averaged_map = json.load(f)
-
-    # Compute global kx/ky
-    kx = float(sum([v["sx"] * int(size) for size, v in averaged_map.items()]) / len(averaged_map))
-    ky = float(sum([v["sy"] * int(size) for size, v in averaged_map.items()]) / len(averaged_map))
-
-    # Load GT mapping to get original boxes
+def extract_gt(gt_map_path:str):
     with open(gt_map_path, "r", encoding="utf-8") as f:
-        gt_data = json.load(f)
+        data = json.load(f)
 
-    variants = {}
+    # Original size (square image)
+    width = data["original_size"]
+    height = data["original_size"]
 
-    for filename, data in gt_data["variants"].items():
-        size = data["size"]
-        gt_box = data["scaled_boxes"][0]  # only one box
+    # Original GT bounding box
+    gt_box = data["gt_boxes"][0]
 
-        # Get per-size calibration if exists
-        size_str = str(size)
-        if size_str in averaged_map:
-            vals = averaged_map[size_str]
-            sx, sy, dx, dy = vals["sx"], vals["sy"], vals["dx"], vals["dy"]
-        else:
-            # fallback to global equation
-            sx = kx / size
-            sy = ky / size
-            dx = 0
-            dy = 0
+    # Extract variant names without .jpg
+    variants = [
+        os.path.splitext(name)[0]
+        for name in data["variants"].keys()
+    ]
 
-        # Correct the bounding box using the scaling
-        x1, y1, x2, y2 = gt_box
-        new_x1 = x1 * sx + dx
-        new_y1 = y1 * sy + dy
-        new_x2 = x2 * sx + dx
-        new_y2 = y2 * sy + dy
+    return gt_box, width, height, variants
 
-        variants[filename] = {
-            "size": size,
-            "scaled_boxes": [[new_x1, new_y1, new_x2, new_y2]]
-        }
 
-    final_map = {
-        "global_equation": {
-            "kx": kx,
-            "ky": ky,
-            "formula": "sx = kx / size, sy = ky / size"
-        },
-        "per_size": averaged_map,
-        "variants": variants
-    }
+def extract_llm(gt_dir:str, trials_name:str):
+    """
+    Collect all bounding boxes from all trials, mapped by variant name.
 
-    with open(master_map_path, "w", encoding="utf-8") as f:
-        json.dump(final_map, f, indent=2)
+    Args:
+        gt_dir (str): path containing folders like "llm_images test 1", "llm_images test 2", ...
+        trials_name (str): pattern for trial folder names
 
-    print(f"Final verification map saved → {master_map_path}")
+    Returns:
+        dict: { "320x320": [(x1,y1,x2,y2), ...], "640x640": [...], ... }
+    """
+    all_boxes = defaultdict(list)
+
+    # Find all trial folders
+    trial_folders = sorted(glob(os.path.join(gt_dir, trials_name)))
+
+    for folder in trial_folders:
+        # Get all JSON files in this trial
+        json_files = glob(os.path.join(folder, "*.json"))
+
+        for json_path in json_files:
+            # Extract variant name from file name (heightxwidth)
+            variant_name = os.path.splitext(os.path.basename(json_path))[0]
+
+            # Load JSON
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Extract first detection bbox if it exists
+            if "detections" in data and data["detections"]:
+                bbox = tuple(data["detections"][0]["bbox"])
+                all_boxes[variant_name].append(bbox)
+
+    return dict(all_boxes)
+
+
+def get_dimensions(gt_box: List[int], bb_box: List[int], orig_image_size: int = 320, tolerance: float = 0.05) -> Tuple[int, int]:
+    """
+    Compute the width and height of a resized image given:
+    - gt_box: [x1g, y1g, x2g, y2g] from ground truth
+    - bb_box: [x1p, y1p, x2p, y2p] from model prediction
+    - orig_image_size: width/height of original square image
+    - tolerance: since AI predictions can be noisy, we apply a tolerance threshold to the scaling factors
+
+    Returns:
+        (width, height) of the new image as integers
+    """
+    x1g, y1g, x2g, y2g = gt_box
+    x1p, y1p, x2p, y2p = bb_box
+
+    # Compute raw scale factors
+    sx = (x2p - x1p) / (x2g - x1g) # Scale for width
+    sy = (y2p - y1p) / (y2g - y1g) # Scale for height
+
+    # Apply threshold clipping to avoid extreme scaling due to box noise
+    sx = max(min(sx, 1 + tolerance), 1 - tolerance)
+    sy = max(min(sy, 1 + tolerance), 1 - tolerance)
+
+    # Compute new image dimensions
+    widthp = round(orig_image_size * sx)
+    heightp = round(orig_image_size * sy)
+
+    return widthp, heightp
 
 
 def test_llm_process():
     # process_llm_images(gt_images_dir, llm_dir)
-    # compare_transforms(gt_map_path, llm_dir, llm_map_path)
-    create_equation(gt_map_path, llm_map_path, master_map_path)
+
+    # Find Width and Height of the new image size variants of the LLM
+    variants_json = {}
+    gt_box, widthg, heightg, variants = extract_gt(gt_map_path)
+    orig_image_size = widthg # square images
+    all_boxes = extract_llm(gt_dir, trials_name)
+    # Compute averaged boxes per variant
+    avg_boxes = {
+        variant: tuple(
+            sum(coord[i] for coord in boxes) // len(boxes)  # integer division
+            for i in range(4)
+        )
+        for variant, boxes in all_boxes.items()
+    }
+    for variant in variants:
+        bb_box = avg_boxes[variant] # Get the averaged predicted box for this variant
+        widthp, heightp = get_dimensions(gt_box, bb_box, orig_image_size, tolerance = 0.05)
+        # Scale coordinates
+        if widthp == heightp:
+            scaled_boxes = [scale_boxes(bb_box, orig_image_size, widthp)]
+        else:
+            scaled_boxes = [scale_non_square(bb_box, orig_image_size, widthp, heightp)]
+
+        variants_json[f"{variant}.jpg"] = {
+            "height": heightp,
+            "width": widthp,
+            "scaled_boxes": scaled_boxes,
+            "averaged_boxes": [bb_box]
+        }
+
+        # Final JSON
+        save_llm_map = {
+            "original_size": orig_image_size,
+            "gt_boxes": [gt_box],
+            "variants": variants_json
+        }
+
+        # Save to file
+        os.makedirs(os.path.dirname(master_map_path), exist_ok=True)
+        with open(master_map_path, "w", encoding="utf-8") as f:
+            json.dump(save_llm_map, f, indent=4)
+
+        print(f"Final JSON saved to {master_map_path}")
+        
+        draw_gtboxes(master_map_path, llm_dir, file_title="llm_verify_box")
+    
     return
 
 
