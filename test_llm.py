@@ -1,6 +1,7 @@
 from collections import defaultdict
 import os
 import json
+import re
 from typing import List, Tuple
 import cv2
 from glob import glob
@@ -22,7 +23,8 @@ gt_images_dir = f"{gt_dir}/gt_images"
 llm_map_path = f"{gt_dir}/size_reference_map test 10.json"
 gt_map_path = f"{gt_images_dir}/gt_mapping.json" # Ground truth mapping with scaled boxes for all image size variants
 pattern = os.path.join(gt_dir, "size_reference_map*.json") # Grab all test runs for averaging
-master_map_path = os.path.join(gt_dir, "final_scaling_map.json")
+master_map_path = os.path.join(gt_dir, "llm_scaling_map.json")
+images_dir = f"{gt_dir}/gt_verify"
 llm_dir = f"{gt_dir}/llm_images"
 
 # Create necessary folders
@@ -282,42 +284,43 @@ def test_llm_process():
     # Compute averaged boxes per variant
     avg_boxes = {
         variant: tuple(
-            sum(coord[i] for coord in boxes) // len(boxes)  # integer division
+            round(sum(coord[i] for coord in boxes) / len(boxes))  # divide normally, then round
             for i in range(4)
         )
         for variant, boxes in all_boxes.items()
     }
     for variant in variants:
+        gt_size = int(re.search(r"(\d+)x\1", variant).group(1)) # Extract gt size from filename like "320x320.jpg" to get 320
+        print(f"Processing variant {variant} with GT size {gt_size}")
         bb_box = avg_boxes[variant] # Get the averaged predicted box for this variant
-        widthp, heightp = get_dimensions(gt_box, bb_box, orig_image_size, tolerance = 0.05)
+        widthp, heightp = get_dimensions(gt_box, bb_box, gt_size, tolerance = 0.02)
         # Scale coordinates
         if widthp == heightp:
-            scaled_boxes = [scale_boxes(bb_box, orig_image_size, widthp)]
+            scaled_boxes = [round(scale_boxes([bb_box], widthp, gt_size)[0][i]) for i in range(4)]
         else:
-            scaled_boxes = [scale_non_square(bb_box, orig_image_size, widthp, heightp)]
+            scaled_boxes = [round(coord) for coord in scale_non_square([bb_box], gt_size, widthp, heightp)[0]]
 
         variants_json[f"{variant}.jpg"] = {
+            "size": gt_size,
             "height": heightp,
             "width": widthp,
-            "scaled_boxes": scaled_boxes,
+            "scaled_boxes": [scaled_boxes],
             "averaged_boxes": [bb_box]
         }
 
-        # Final JSON
         save_llm_map = {
             "original_size": orig_image_size,
             "gt_boxes": [gt_box],
             "variants": variants_json
         }
 
-        # Save to file
-        os.makedirs(os.path.dirname(master_map_path), exist_ok=True)
-        with open(master_map_path, "w", encoding="utf-8") as f:
-            json.dump(save_llm_map, f, indent=4)
+    # Save to file
+    with open(master_map_path, "w", encoding="utf-8") as f:
+        json.dump(save_llm_map, f, indent=4)
 
-        print(f"Final JSON saved to {master_map_path}")
+    print(f"LLM Map saved to {master_map_path}")
         
-        draw_gtboxes(master_map_path, llm_dir, file_title="llm_verify_box")
+    draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
     
     return
 

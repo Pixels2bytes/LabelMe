@@ -5,8 +5,10 @@ from collections import defaultdict
 
 STATS_JSON = "output/stats/neo_image_stats.json"
 TEST_IMAGE_PATH = "datasets/image_test_gt/005753_jpg.rf.6af0bc88a1c368557756505de4a497a2.jpg" 
-OUTPUT_DIR = "resources/gt_images"
+OUTPUT_DIR = "resources/ground_truth/gt_images"
+gt_ver_dir = "resources/ground_truth/gt_verify"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(gt_ver_dir, exist_ok=True)
 
 # Ground truth boxes (pixel coords)
 # Example: [[x1, y1, x2, y2], ...]
@@ -115,14 +117,15 @@ def image_test_process():
     return output_path
 
 
-def draw_gtboxes(mapping_json_path:str, image_dir:str, color:tuple, file_title:str="verify_box"):
+def draw_gtboxes(mapping_json_path:str, image_dir:str, color:tuple, output_dir:str, file_title:str="verify_box", dataset_title:str=""):
     with open(mapping_json_path, "r", encoding="utf-8") as f:
         mapping = json.load(f)
 
     variants = mapping["variants"]
 
     for filename, data in variants.items():
-        image_path = os.path.join(image_dir, filename)
+        add_name = f"{dataset_title}_{filename}" if dataset_title else f"{filename}"
+        image_path = os.path.join(image_dir, add_name)
 
         if not os.path.exists(image_path):
             continue
@@ -141,7 +144,7 @@ def draw_gtboxes(mapping_json_path:str, image_dir:str, color:tuple, file_title:s
                 )
 
         verify_name = f"{file_title}_{filename}"
-        save_path = os.path.join(image_dir, verify_name)
+        save_path = os.path.join(output_dir, verify_name)
 
         img.save(save_path)
 
@@ -151,7 +154,7 @@ def draw_gtboxes(mapping_json_path:str, image_dir:str, color:tuple, file_title:s
 def main():
     color = (0, 255, 0)  # Green for GT boxes
     output_path = image_test_process()
-    draw_gtboxes(output_path, OUTPUT_DIR, color)
+    draw_gtboxes(output_path, OUTPUT_DIR, color, gt_ver_dir)
 
 if __name__ == "__main__":
     main()

@@ -147,6 +147,7 @@ venv.bak/
 # Folders
 /static
 /dataset
+/datasets
 /model dataset
 /model output
 /utils
