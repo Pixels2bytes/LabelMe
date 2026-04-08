@@ -132,8 +132,8 @@ print(f"YOLO files: {YOLO_TRAIN_FOLDER}")
 print(f"COCO file: {OUTPUT_FOLDER}")
 
 
-# Create train/val images by spiltting 30% of images in image folder into val folder and copying the 70% into train folder
-duplicate_percent=0.3
+# Create train/val images by spiltting 15% of images in image folder into val folder and copying the 85% into train folder
+duplicate_percent=0.15
 
 # Copy all images from input image folder to output image folder
 for f in os.listdir(INPUT_IMAGE_FOLDER):
