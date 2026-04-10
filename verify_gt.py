@@ -11,9 +11,9 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(gt_ver_dir, exist_ok=True)
 
 # Ground truth boxes (pixel coords)
-# Example: [[x1, y1, x2, y2], ...]
+# Example: [[ymin, xmin, ymax, xmax], ...]
 GT_BOXES = [
-    [54, 47, 249, 259]
+    [47, 54, 259, 249]
 ]
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -41,13 +41,13 @@ def scale_boxes(boxes, original_size, new_size):
 
     scaled = []
     for box in boxes:
-        x1, y1, x2, y2 = box
+        y1, x1, y2, x2 = box
 
         scaled.append([
-            x1 * scale,
             y1 * scale,
-            x2 * scale,
-            y2 * scale
+            x1 * scale,
+            y2 * scale,
+            x2 * scale
         ])
 
     return scaled
@@ -59,13 +59,13 @@ def scale_non_square(boxes, original_size, new_width, new_height):
 
     scaled = []
     for box in boxes:
-        x1, y1, x2, y2 = box
+        y1, x1, y2, x2 = box
 
         scaled.append([
-            x1 * scale_w,
             y1 * scale_h,
-            x2 * scale_w,
-            y2 * scale_h
+            x1 * scale_w,
+            y2 * scale_h,
+            x2 * scale_w
         ])
 
     return scaled
@@ -134,7 +134,7 @@ def draw_gtboxes(mapping_json_path:str, image_dir:str, color:tuple, output_dir:s
         draw = ImageDraw.Draw(img)
 
         for box in data["scaled_boxes"]:
-            x1, y1, x2, y2 = box
+            y1, x1, y2, x2 = box
 
             # Draw rectangle (color outline, thickness simulated)
             for i in range(3):  # thickness

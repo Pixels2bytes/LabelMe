@@ -2,8 +2,6 @@ def test_llm_schema():
     response_schema = {
         "type": "object",
         "properties": {
-            "image_width": {"type": "integer"},
-            "image_height": {"type": "integer"},
             "detections": {
                 "type": "array",
                 "items": {
@@ -16,14 +14,14 @@ def test_llm_schema():
                             "minItems": 4,
                             "maxItems": 4
                         },
-                        "width": {"type": "number"},
-                        "height": {"type": "number"},
+                        "box_width": {"type": "number"},
+                        "box_height": {"type": "number"},
                         "confidence": {"type": "number"}
                     },
-                    "required": ["label", "bbox", "width", "height", "confidence"]
+                    "required": ["label", "bbox", "box_width", "box_height", "confidence"]
                 }
             }
         },
-        "required": ["image_width", "image_height", "detections"]
+        "required": ["detections"]
     }
     return response_schema

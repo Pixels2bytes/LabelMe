@@ -1,4 +1,4 @@
-def img_ground_truth_prompt(classes: list[str]):
+def img_ground_truth_prompt(classes: list[str], norm_range):
     prompt = f"""
     You are a precise computer vision assistant for generating object detection annotations.
 
@@ -8,25 +8,23 @@ def img_ground_truth_prompt(classes: list[str]):
     Instructions:
     1. Detect all objects belonging to the listed classes.
     2. Draw tight bounding boxes around each object.
-    3. Use pixel coordinates (NOT normalized).
+    3. Coordinates must be integers normalized to 0-{norm_range} range.
     4. Coordinates must follow this exact format:
-    [x_min, y_min, x_max, y_max]
+    [ymin, xmin, ymax, xmax]
     5. Provide bounding box width and height.
     6. Provide image width and height.
-    7. Assign a confidence score between 0.0 and 1.0.
+    7. Assign a confidence score between 0.0 and 1.0 of how close the detection is to the true object location.
 
     Return ONLY valid JSON. No explanations. No code fences.
 
     Required JSON format:
     {{
-        "image_width": <int>,
-        "image_height": <int>,
         "detections": [
             {{
                 "label": "<label>",
-                "bbox": [x_min, y_min, x_max, y_max],
-                "width": <int>,
-                "height": <int>,
+                "bbox": [y_min, x_min, y_max, x_max],
+                "box_width": <int>,
+                "box_height": <int>,
                 "confidence": <float>
             }}
         ]
@@ -38,5 +36,6 @@ def img_ground_truth_prompt(classes: list[str]):
     - width = x_max - x_min
     - height = y_max - y_min
     - Ensure bounding boxes are accurate and tight
+    - Coordinates must be integers normalized to 0-{norm_range} range
     """
     return prompt

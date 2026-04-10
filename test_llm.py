@@ -34,7 +34,7 @@ os.makedirs(gt_images_dir, exist_ok=True)
 
 MODEL_ID = "gemini-robotics-er-1.5-preview"
 LABEL_CLASSES = {"person"}
-PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES))
+# PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES))
 load_dotenv(dotenv_path="utils/.env")
 PROJECT_NAME = os.getenv("PROJECT_NAME")
 LOCATION = os.getenv("LOCATION")
@@ -59,6 +59,7 @@ else:
 
 def image_to_bytes(img_file: Path) -> bytes:
     frame = cv2.imread(str(img_file))
+    frame_height, frame_width = frame.shape[:2] # height = 0 index, width = 1 index
     if frame is None:
         print(f"Error reading {img_file.name}, skipping")
         return None
@@ -70,7 +71,7 @@ def image_to_bytes(img_file: Path) -> bytes:
         return None
 
     frame_bytes = buffer.tobytes()
-    return frame_bytes, frame
+    return frame_bytes, frame, frame_height, frame_width
 
 
 def gem_response(frame_bytes, model_id, prompt, max_retries=2):
@@ -136,7 +137,7 @@ def gem_response(frame_bytes, model_id, prompt, max_retries=2):
     return None, None
 
 
-def process_llm_images(images_folder, output_folder):
+def process_llm_images(images_folder, output_folder, norm_range=1000):
     """Process all images in the folder and convert them to bytes."""
     if not images_folder:
         print(f"Error: Images folder {images_folder} does not exist")
@@ -167,9 +168,10 @@ def process_llm_images(images_folder, output_folder):
         if result is None:
             continue
 
-        frame_bytes, frame = result
+        frame_bytes, frame, frame_height, frame_width = result
 
         # Detect person from Gemini model
+        PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES), norm_range)
         detections, response = gem_response(frame_bytes, MODEL_ID, PROMPT)
 
         if detections is None:
@@ -244,19 +246,21 @@ def extract_llm(gt_dir:str, trials_name:str):
     return dict(all_boxes)
 
 
-def get_dimensions(gt_box: List[int], bb_box: List[int], orig_image_size: int = 320, tolerance: float = 0.05) -> Tuple[int, int]:
+def get_dimensions(gt_box: List[int], bb_box: List[int], orig_image_size: int = 320, tolerance: float = 0.05, pixel_dims: bool = False) -> Tuple[int, int]:
     """
     Compute the width and height of a resized image given:
-    - gt_box: [x1g, y1g, x2g, y2g] from ground truth
-    - bb_box: [x1p, y1p, x2p, y2p] from model prediction
+    - gt_box: [y1g, x1g, y2g, x2g] from ground truth
+    - bb_box: [y1p, x1p, y2p, x2p] from model prediction
     - orig_image_size: width/height of original square image
     - tolerance: since AI predictions can be noisy, we apply a tolerance threshold to the scaling factors
 
     Returns:
         (width, height) of the new image as integers
     """
-    x1g, y1g, x2g, y2g = gt_box
-    x1p, y1p, x2p, y2p = bb_box
+    y1g, x1g, x2g, y2g = gt_box
+    y1p, x1p, y2p, x2p = bb_box
+    
+    # Convert to pixel dimensions (if they are normalized, this step would be different)
 
     # Compute raw scale factors
     sx = (x2p - x1p) / (x2g - x1g) # Scale for width
@@ -273,12 +277,67 @@ def get_dimensions(gt_box: List[int], bb_box: List[int], orig_image_size: int = 
     return widthp, heightp
 
 
-def test_llm_process():
-    # process_llm_images(gt_images_dir, llm_dir)
+def norm_scale_boxes(bb_box:list, image_height:int, image_width:int, norm_range:int=1000):
+    """Draw bounding boxes on the image frame based on normalized coordinates (0 to norm_range)"""
+    scaled = []
+    for box in bb_box:
+        try:
+            if not box or len(box) != 4:
+                continue
 
+            # Convert normalized coordinates (0-normal_range) to pixel coordinates
+            ymin = int(box[0] * image_height / norm_range)
+            xmin = int(box[1] * image_width / norm_range)
+            ymax = int(box[2] * image_height / norm_range)
+            xmax = int(box[3] * image_width / norm_range)
+
+            # Ensure coordinates are within image bounds
+            ymin = max(0, min(ymin, image_height))
+            xmin = max(0, min(xmin, image_width))
+            ymax = max(0, min(ymax, image_height))
+            xmax = max(0, min(xmax, image_width))
+            scaled.append([ymin, xmin, ymax, xmax])
+
+        except Exception as e:
+            print(f"Error drawing bbox {box}: {e}")
+            continue
+    return scaled
+
+
+def convert_to_yolo(bb_box:list, image_height:int, image_width:int, norm_range:int=1000):
+    yolo_boxes = []
+    for box in bb_box:
+        try:
+            if not box or len(box) != 4:
+                continue
+            
+            y_min, x_min, y_max, x_max = box
+
+            # normalize to 0–1
+            x_min /= norm_range
+            x_max /= norm_range
+            y_min /= norm_range
+            y_max /= norm_range
+
+            # YOLO conversion
+            x_center = (x_min + x_max) / 2
+            y_center = (y_min + y_max) / 2
+            width = x_max - x_min
+            height = y_max - y_min
+
+            yolo_boxes.append([x_center, y_center, width, height])
+
+        except Exception as e:
+            print(f"Error converting to YOLO format {box}: {e}")
+            continue
+    return yolo_boxes
+
+
+def process_llm_map(map_path: str, pixel_dims: bool = False, norm_range: int = 1000, tolerance: float = 0.02):
     # Find Width and Height of the new image size variants of the LLM
     variants_json = {}
     gt_box, widthg, heightg, variants = extract_gt(gt_map_path)
+
     orig_image_size = widthg # square images
     all_boxes = extract_llm(gt_dir, trials_name)
     # Compute averaged boxes per variant
@@ -290,20 +349,38 @@ def test_llm_process():
         for variant, boxes in all_boxes.items()
     }
     for variant in variants:
-        gt_size = int(re.search(r"(\d+)x\1", variant).group(1)) # Extract gt size from filename like "320x320.jpg" to get 320
-        print(f"Processing variant {variant} with GT size {gt_size}")
+        # Extract gt size from filename like "320x320.jpg" to get 320 from square
+        gt_size = int(re.search(r"(\d+)x\1", variant).group(1))
+
+        # Get height and width from variant name (e.g., "320x400" to get height=320, width=400)
+        match = re.search(r"(\d+)x(\d+)", variant)
+        gt_height = int(match.group(1)) # Extract height (first number)
+        gt_width = int(match.group(2)) # Extract width (second number)
+
+        print(f"Processing variant {variant} with GT size {gt_size} and GT dimensions ({gt_width}x{gt_height})")
+
         bb_box = avg_boxes[variant] # Get the averaged predicted box for this variant
         widthp, heightp = get_dimensions(gt_box, bb_box, gt_size, tolerance = 0.02)
         # Scale coordinates
-        if widthp == heightp:
-            scaled_boxes = [round(scale_boxes([bb_box], widthp, gt_size)[0][i]) for i in range(4)]
+        if pixel_dims:
+            if widthp == heightp:
+                scaled_boxes = [round(scale_boxes([bb_box], widthp, gt_size)[0][i]) for i in range(4)]
+                norm_range = 1 # Set norm_range to 1 to indicate that these are now pixel dimensions and should not be normalized further
+            else:
+                scaled_boxes = [round(coord) for coord in scale_non_square([bb_box], gt_size, widthp, heightp)[0]]
+                norm_range = 1 # Set norm_range to 1 to indicate that these are now pixel dimensions and should not be normalized further
         else:
-            scaled_boxes = [round(coord) for coord in scale_non_square([bb_box], gt_size, widthp, heightp)[0]]
+            # Normalized coordinates to pixel dimensions for the new image size
+            scaled_boxes = norm_scale_boxes([bb_box], gt_height, gt_width, norm_range)[0]
+        
+        yolo_boxes = convert_to_yolo([bb_box], gt_height, gt_width, norm_range)[0]
 
         variants_json[f"{variant}.jpg"] = {
             "size": gt_size,
-            "height": heightp,
-            "width": widthp,
+            "height": gt_height,
+            "width": gt_width,
+            "norm_range": norm_range,
+            "yolo_boxes": [yolo_boxes],
             "scaled_boxes": [scaled_boxes],
             "averaged_boxes": [bb_box]
         }
@@ -315,14 +392,31 @@ def test_llm_process():
         }
 
     # Save to file
-    with open(master_map_path, "w", encoding="utf-8") as f:
+    with open(map_path, "w", encoding="utf-8") as f:
         json.dump(save_llm_map, f, indent=4)
 
-    print(f"LLM Map saved to {master_map_path}")
+    print(f"LLM Map saved to {map_path}")
         
+    return map_path
+
+
+def test_llm_process(pixel_dims: bool = False, norm_range: int = 1000):
+    trials = 3 # number of runs to average over, set to 1 for no averaging (just one run)
+    for trial in range(1, trials + 1):
+        folder_path= f"{gt_dir}/llm_images test {trial}"
+        os.makedirs(folder_path, exist_ok=True)
+        process_llm_images(gt_images_dir, folder_path, norm_range=norm_range)
+    map_path = process_llm_map(master_map_path, pixel_dims=pixel_dims, norm_range=norm_range, tolerance=0.02)
     draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
+
+
+def wild_checker():
+    # Takes an image and runs it through the model
+    test_images_dir = "resources/test"
+    out_folder = "resources/test_output"
     
-    return
+    process_llm_images(test_images_dir, out_folder, 1000)
+    
 
 
 def main():
