@@ -4,7 +4,6 @@ from tqdm import tqdm
 
 INPUT_FOLDER = "create dataset/dangerous_weapons/images" # "resources/test_llm" # "create dataset/dangerous_weapons/images"
 OUTPUT_FOLDER = "datasets/image_test_gt" # "datasets/image_test_gt"
-
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 
@@ -20,18 +19,18 @@ def make_square_with_padding(img):
     return new_img
 
 
-def resize_to_multiple_of_320(img):
+def resize_to_multiple_of_target(img, target_size):
     width, height = img.size  # should already be square
 
-    if width < 320:
-        # pad up to 320
-        new_img = Image.new("RGB", (320, 320), (0, 0, 0))
-        paste = ((320 - width) // 2, (320 - height) // 2)
+    if width < target_size:
+        # pad up to target_size
+        new_img = Image.new("RGB", (target_size, target_size), (0, 0, 0))
+        paste = ((target_size - width) // 2, (target_size - height) // 2)
         new_img.paste(img, paste)
         return new_img
 
-    # find nearest lower multiple of 320
-    target_size = (width // 320) * 320
+    # find nearest lower multiple of target_size
+    target_size = (width // target_size) * target_size
     if target_size == 0:
         target_size = 320
 
@@ -41,7 +40,7 @@ def resize_to_multiple_of_320(img):
     return img
 
 
-def process_image(input_path, output_path):
+def process_image(input_path, output_path, target_size=320):
     try:
         with Image.open(input_path) as img:
             img = img.convert("RGB")
@@ -52,8 +51,8 @@ def process_image(input_path, output_path):
             if width != height:
                 img = make_square_with_padding(img)
 
-            # Step 2: resize/pad to multiple of 320
-            img = resize_to_multiple_of_320(img)
+            # Step 2: resize/pad to multiple of target_size
+            img = resize_to_multiple_of_target(img, target_size)
 
             img.save(output_path)
 
@@ -61,7 +60,7 @@ def process_image(input_path, output_path):
         pass
 
 
-def resize_images_process(INPUT_FOLDER:str, OUTPUT_FOLDER:str):
+def resize_images_process(INPUT_FOLDER:str, OUTPUT_FOLDER:str, target_size:int):
     image_files = []
 
     for root, _, files in os.walk(INPUT_FOLDER):
@@ -83,7 +82,8 @@ def resize_images_process(INPUT_FOLDER:str, OUTPUT_FOLDER:str):
             pbar.update(1)
 
 def main():
-    resize_images_process(INPUT_FOLDER, OUTPUT_FOLDER)
+    target_size = 320
+    resize_images_process(INPUT_FOLDER, OUTPUT_FOLDER, target_size)
 
 if __name__ == "__main__":
     main()
