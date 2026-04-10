@@ -14,7 +14,8 @@ from pathlib import Path
 from utils import load_service_account
 from prompts import img_ground_truth_prompt
 from schemas import test_llm_schema
-from verify_gt import scale_boxes, scale_non_square, draw_gtboxes
+from verify_gt import image_test_process, scale_boxes, scale_non_square, draw_gtboxes
+from resize_dataset import resize_images_process
 
 
 gt_dir = "resources/ground_truth"
@@ -33,7 +34,6 @@ os.makedirs(llm_dir, exist_ok=True)
 os.makedirs(gt_images_dir, exist_ok=True)
 
 MODEL_ID = "gemini-robotics-er-1.5-preview"
-LABEL_CLASSES = {"person"}
 # PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES))
 load_dotenv(dotenv_path="utils/.env")
 PROJECT_NAME = os.getenv("PROJECT_NAME")
@@ -137,7 +137,7 @@ def gem_response(frame_bytes, model_id, prompt, max_retries=2):
     return None, None
 
 
-def process_llm_images(images_folder, output_folder, norm_range=1000):
+def process_llm_images(images_folder, output_folder, norm_range=1000, LABEL_CLASSES={"person"}):
     """Process all images in the folder and convert them to bytes."""
     if not images_folder:
         print(f"Error: Images folder {images_folder} does not exist")
@@ -356,13 +356,12 @@ def process_llm_map(map_path: str, pixel_dims: bool = False, norm_range: int = 1
         match = re.search(r"(\d+)x(\d+)", variant)
         gt_height = int(match.group(1)) # Extract height (first number)
         gt_width = int(match.group(2)) # Extract width (second number)
-
         print(f"Processing variant {variant} with GT size {gt_size} and GT dimensions ({gt_width}x{gt_height})")
-
         bb_box = avg_boxes[variant] # Get the averaged predicted box for this variant
-        widthp, heightp = get_dimensions(gt_box, bb_box, gt_size, tolerance = 0.02)
+        
         # Scale coordinates
         if pixel_dims:
+            widthp, heightp = get_dimensions(gt_box, bb_box, gt_size, tolerance = 0.02)
             if widthp == heightp:
                 scaled_boxes = [round(scale_boxes([bb_box], widthp, gt_size)[0][i]) for i in range(4)]
                 norm_range = 1 # Set norm_range to 1 to indicate that these are now pixel dimensions and should not be normalized further
@@ -400,27 +399,19 @@ def process_llm_map(map_path: str, pixel_dims: bool = False, norm_range: int = 1
     return map_path
 
 
-def test_llm_process(pixel_dims: bool = False, norm_range: int = 1000):
+def test_llm_process(pixel_dims: bool = False, norm_range: int = 1000, LABEL_CLASSES = {"person"}):
     trials = 3 # number of runs to average over, set to 1 for no averaging (just one run)
     for trial in range(1, trials + 1):
         folder_path= f"{gt_dir}/llm_images test {trial}"
         os.makedirs(folder_path, exist_ok=True)
-        process_llm_images(gt_images_dir, folder_path, norm_range=norm_range)
+        process_llm_images(gt_images_dir, folder_path, norm_range=norm_range, LABEL_CLASSES=LABEL_CLASSES)
     map_path = process_llm_map(master_map_path, pixel_dims=pixel_dims, norm_range=norm_range, tolerance=0.02)
     draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
 
 
-def wild_checker():
-    # Takes an image and runs it through the model
-    test_images_dir = "resources/test"
-    out_folder = "resources/test_output"
-    
-    process_llm_images(test_images_dir, out_folder, 1000)
-    
-
-
 def main():
-    test_llm_process()
+    LABEL_CLASSES = {"person"}
+    test_llm_process(LABEL_CLASSES=LABEL_CLASSES)
 
 
 if __name__ == "__main__":

@@ -3,22 +3,6 @@ import json
 from PIL import Image, ImageDraw
 from collections import defaultdict
 
-STATS_JSON = "output/stats/neo_image_stats.json"
-TEST_IMAGE_PATH = "datasets/image_test_gt/005753_jpg.rf.6af0bc88a1c368557756505de4a497a2.jpg" 
-OUTPUT_DIR = "resources/ground_truth/gt_images"
-gt_ver_dir = "resources/ground_truth/gt_verify"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(gt_ver_dir, exist_ok=True)
-
-# Ground truth boxes (pixel coords)
-# Example: [[ymin, xmin, ymax, xmax], ...]
-GT_BOXES = [
-    [47, 54, 259, 249]
-]
-
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
 def get_unique_square_sizes(stats_json):
     with open(stats_json, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -71,7 +55,7 @@ def scale_non_square(boxes, original_size, new_width, new_height):
     return scaled
 
 
-def generate_tests(image_path, sizes, gt_boxes):
+def generate_tests(image_path, sizes, gt_boxes, OUTPUT_DIR="resources/ground_truth/gt_images"):
     img = Image.open(image_path).convert("RGB")
     original_size = img.size[0]  # square
 
@@ -100,14 +84,14 @@ def generate_tests(image_path, sizes, gt_boxes):
     return mapping
 
 
-def save_mapping(mapping):
+def save_mapping(mapping, OUTPUT_DIR="resources/ground_truth/gt_images"):
     output_path = os.path.join(OUTPUT_DIR, "gt_mapping.json")
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(mapping, f, indent=4)
     return output_path
 
 
-def image_test_process():
+def image_test_process(STATS_JSON:str, TEST_IMAGE_PATH:str, GT_BOXES:list, OUTPUT_DIR:str):
     sizes = get_unique_square_sizes(STATS_JSON)
     print(f"Found sizes: {sizes}")
     mapping = generate_tests(TEST_IMAGE_PATH, sizes, GT_BOXES)
@@ -152,8 +136,21 @@ def draw_gtboxes(mapping_json_path:str, image_dir:str, color:tuple, output_dir:s
 
 
 def main():
+    STATS_JSON = "output/stats/neo_image_stats.json"
+    TEST_IMAGE_PATH = "datasets/image_test_gt/005753_jpg.rf.6af0bc88a1c368557756505de4a497a2.jpg" 
+    OUTPUT_DIR = "resources/ground_truth/gt_images"
+    gt_ver_dir = "resources/ground_truth/gt_verify"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(gt_ver_dir, exist_ok=True)
+
+    # Ground truth boxes (pixel coords)
+    # Example: [[ymin, xmin, ymax, xmax], ...]
+    GT_BOXES = [
+        [47, 54, 259, 249]
+    ]
+
     color = (0, 255, 0)  # Green for GT boxes
-    output_path = image_test_process()
+    output_path = image_test_process(STATS_JSON, TEST_IMAGE_PATH, GT_BOXES, OUTPUT_DIR)
     draw_gtboxes(output_path, OUTPUT_DIR, color, gt_ver_dir)
 
 if __name__ == "__main__":
