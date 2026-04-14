@@ -4,7 +4,7 @@ import pandas as pd
 import cv2
 from tqdm import tqdm
 
-def rotate_horizontal(image, orig, folder_path):
+def rotate_horizontal(image, orig, folder_path, verbose:bool=False):
     # Code to rotate the image horizontally
     filename = os.path.basename(orig)
     name, ext = os.path.splitext(filename)
@@ -17,7 +17,7 @@ def rotate_horizontal(image, orig, folder_path):
     return new_name
 
 
-def grayscaled_images(image, img_path, folder_path):
+def grayscaled_images(image, img_path, folder_path, verbose:bool=False):
     # Code to create grayscaled versions of the images and save them
     filename = os.path.basename(img_path)
     name, ext = os.path.splitext(filename)
@@ -31,10 +31,13 @@ def grayscaled_images(image, img_path, folder_path):
         
         # If file already exists in folder, skip
         if os.path.exists(path):
+            if verbose:
+                print(f"{new_name} already exists in {folder_path}, skipping...")
             continue
-
+        
+        # Prevent errors if there is already a grayscaled version in the folder
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) # Grayscale the image
         if i == 0:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) # Grayscale the image
             cv2.imwrite(path, gray)
         if i == 1:
             darkened = cv2.addWeighted(gray, 0.5, gray, 0, 0) # Darken the image
@@ -52,7 +55,7 @@ def grayscaled_images(image, img_path, folder_path):
     return imgs
 
 
-def contrast_images(image, img_path, folder_path):
+def contrast_images(image, img_path, folder_path, verbose:bool=False):
     # Code to create contrast versions of the images and save them
     filename = os.path.basename(img_path)
     name, ext = os.path.splitext(filename)
@@ -66,6 +69,8 @@ def contrast_images(image, img_path, folder_path):
         
         # If file already exists in folder, skip
         if os.path.exists(path):
+            if verbose:
+                print(f"{new_name} already exists in {folder_path}, skipping...")
             continue
 
         if i == 0:
@@ -87,7 +92,7 @@ def contrast_images(image, img_path, folder_path):
     return imgs
 
 
-def create_more_images_process(annotations_file, target_labels, ignore_labels, combo_labels, img_dir):
+def create_more_images_process(annotations_file, target_labels, ignore_labels, combo_labels, img_dir, verbose=False):
     # Load annotations csv file
     annotations = pd.read_csv(annotations_file)
 
@@ -140,7 +145,7 @@ def create_more_images_process(annotations_file, target_labels, ignore_labels, c
             continue
 
         # Create more images from the original image
-        horiz_name = rotate_horizontal(orig, orig_path, horiz_dir)
+        horiz_name = rotate_horizontal(orig, orig_path, horiz_dir, verbose)
         horiz_path = os.path.join(horiz_dir, horiz_name)
         h_images.append(horiz_name)
         
@@ -149,12 +154,12 @@ def create_more_images_process(annotations_file, target_labels, ignore_labels, c
             continue
 
         # 5 versions of the original and horizontal images (10 total)
-        orig_gray_images = grayscaled_images(orig, orig_path, orig_dir)
-        horiz_gray_images = grayscaled_images(horiz, horiz_path, horiz_dir)
+        orig_gray_images = grayscaled_images(orig, orig_path, orig_dir, verbose)
+        horiz_gray_images = grayscaled_images(horiz, horiz_path, horiz_dir, verbose)
 
         # 5 versions of the original and horizontal images (10 total)
-        orig_contra_images = contrast_images(orig, orig_path, orig_dir)
-        horiz_contra_images = contrast_images(horiz, horiz_path, horiz_dir)
+        orig_contra_images = contrast_images(orig, orig_path, orig_dir, verbose)
+        horiz_contra_images = contrast_images(horiz, horiz_path, horiz_dir, verbose)
 
         for orig_gray in orig_gray_images:
             images.append(orig_gray)
@@ -178,7 +183,8 @@ def main():
     #ignore_labels = ["person", "hand"]
     #annotations_file = "create dataset/dangerous_weapons/image_annotations_this.csv"
     #img_dir = "datasets/neo_weapons"
-    combo_labels = False # True = images with both target and ignore labels. False = only images with target labels and nothing else
+    combo_labels = True # True = images with both target and ignore labels. False = only images with target labels and nothing else
+    verbose = True
 
     # Test
     target_labels = ["cow"]
@@ -186,7 +192,7 @@ def main():
     annotations_file = "resources/ground_truth/gt_images/gt_annon.csv"
     img_dir = "resources/ground_truth/gt_images"
 
-    create_more_images_process(annotations_file, target_labels, ignore_labels, combo_labels, img_dir)
+    create_more_images_process(annotations_file, target_labels, ignore_labels, combo_labels, img_dir, verbose)
 
 
 if __name__ == "__main__":
