@@ -1,8 +1,8 @@
 """Grabs the images in the dataset and the annotations file to generate 16 different versions of an image to balance the dataset."""
 import os
 import pandas as pd
-
 import cv2
+from tqdm import tqdm
 
 def rotate_horizontal(image, orig, folder_path):
     # Code to rotate the image horizontally
@@ -117,12 +117,22 @@ def create_more_images_process(annotations_file, target_labels, ignore_labels, c
         # If combo_labels is false, only use images that have the target labels
         if combo_labels == False:
             # Find all images that have ignore labels in image_key and remove them from the target_images list
-            for frame in image_key:
-                if any(label in ignore_labels for label in image_key[frame]):
-                    if frame in target_images:
-                        target_images.remove(frame)
+            ignore_frames = set()
+            for frame, label in zip(frames, labels):
+                if label in ignore_labels:
+                    ignore_frames.add(frame)
 
-    for img in target_images:
+            filtered_images = []
+
+            for frame in target_images:
+                if frame in ignore_frames:
+                    print(f"Removed {frame} from target images because it has ignore labels")
+                    continue
+                filtered_images.append(frame)
+
+            target_images = filtered_images
+
+    for img in tqdm(target_images, desc="Processing Images"):
         orig_path = os.path.join(img_dir, img)
 
         orig = cv2.imread(orig_path)
