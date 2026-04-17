@@ -2,6 +2,7 @@ from collections import defaultdict
 import os
 import json
 import re
+import shutil
 from typing import List, Tuple
 import cv2
 from glob import glob
@@ -12,26 +13,16 @@ from google.genai import types
 from google.genai.errors import ServerError
 from pathlib import Path
 from utils import load_service_account
-from prompts import img_ground_truth_prompt
+from prompts import img_ground_truth_prompt, img_multi_prompt
 from schemas import test_llm_schema
 from verify_gt import image_test_process, scale_boxes, scale_non_square, draw_gtboxes
 from resize_dataset import resize_images_process
 
 
-gt_dir = "resources/ground_truth"
-trials_name = f"llm_images test *" # Main name and contains each test trial run
-gt_images_dir = f"{gt_dir}/gt_images"
-llm_map_path = f"{gt_dir}/size_reference_map test 10.json"
-gt_map_path = f"{gt_images_dir}/gt_mapping.json" # Ground truth mapping with scaled boxes for all image size variants
-pattern = os.path.join(gt_dir, "size_reference_map*.json") # Grab all test runs for averaging
-master_map_path = os.path.join(gt_dir, "llm_scaling_map.json")
-images_dir = f"{gt_dir}/gt_verify"
-llm_dir = f"{gt_dir}/llm_images"
-
-# Create necessary folders
-os.makedirs(gt_dir, exist_ok=True)
-os.makedirs(llm_dir, exist_ok=True)
-os.makedirs(gt_images_dir, exist_ok=True)
+# Pricing for Gemini Robotics ER 1.5 Preview (adjust based on actual pricing)
+# Estimated pricing per 1M tokens
+INPUT_PRICE_PER_1M = 0.0  # Update with actual pricing
+OUTPUT_PRICE_PER_1M = 0.0  # Update with actual pricing
 
 MODEL_ID = "gemini-robotics-er-1.5-preview"
 # PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES))
@@ -56,6 +47,46 @@ else:
     # Initialize the GenAI client and specify the model
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+
+# Token and cost tracking
+class UsageTracker:
+    def __init__(self):
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_frames = 0
+
+    def add_usage(self, response):
+        """Extract and add token usage from response."""
+        if hasattr(response, "usage_metadata"):
+            usage = response.usage_metadata
+            self.total_input_tokens += getattr(usage, "prompt_token_count", 0) or 0
+            self.total_output_tokens += getattr(usage, "candidates_token_count", 0) or 0
+        self.total_frames += 1
+
+    def calculate_cost(self):
+        """Calculate total cost based on token usage."""
+        input_cost = (self.total_input_tokens / 1_000_000) * INPUT_PRICE_PER_1M
+        output_cost = (self.total_output_tokens / 1_000_000) * OUTPUT_PRICE_PER_1M
+        return input_cost + output_cost
+
+    def print_summary(self):
+        """Print usage summary."""
+        total_cost = self.calculate_cost()
+        print("\n" + "=" * 60)
+        print("PROCESSING SUMMARY")
+        print("=" * 60)
+        print(f"Total Frames Processed: {self.total_frames}")
+        print(f"Total Input Tokens: {self.total_input_tokens:,}")
+        print(f"Total Output Tokens: {self.total_output_tokens:,}")
+        print(f"Total Tokens: {self.total_input_tokens + self.total_output_tokens:,}")
+        if INPUT_PRICE_PER_1M > 0 or OUTPUT_PRICE_PER_1M > 0:
+            print(f"Estimated Cost: ${total_cost:.4f}")
+        else:
+            print("Cost: Not available (update pricing in script)")
+        print("=" * 60)
+
+
+tracker = UsageTracker()
 
 def image_to_bytes(img_file: Path) -> bytes:
     frame = cv2.imread(str(img_file))
@@ -95,8 +126,18 @@ def gem_response(frame_bytes, model_id, prompt, max_retries=2):
                     response_mime_type="application/json",
                     response_schema=test_llm_schema(),
                     thinking_config=types.ThinkingConfig(thinking_budget=0),
-                ),
+                )
             )
+            """
+            config={'service_tier': 'SERVICE_TIER_FLEX', 'types': types.GenerateContentConfig(
+                    temperature=0.3,  # Lower temperature for more consistent detection
+                    response_mime_type="application/json",
+                    response_schema=test_llm_schema(),
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    )  
+                    },
+            )
+            """
 
             print(f":::::::::::::::\n{response.text}\n")
 
@@ -137,7 +178,7 @@ def gem_response(frame_bytes, model_id, prompt, max_retries=2):
     return None, None
 
 
-def process_llm_images(images_folder, output_folder, norm_range=1000, LABEL_CLASSES={"person"}, gt:bool = False):
+def process_llm_images(images_folder, output_folder, norm_range=1000, LABEL_CLASSES={"person"}, gt:bool=False):
     """Process all images in the folder and convert them to bytes."""
     if not images_folder:
         print(f"Error: Images folder {images_folder} does not exist")
@@ -147,7 +188,7 @@ def process_llm_images(images_folder, output_folder, norm_range=1000, LABEL_CLAS
     images_path = Path(images_folder)
 
     # Collect image files
-    image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".JPG", ".JPEG", ".PNG", ".BMP"]
+    image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".JPG", ".JPEG", ".PNG", ".BMP", ".avif", ".AVIF", ".webp", ".WEBP", ".tif", ".tiff", ".TIF", ".TIFF", ".svg", ".SVG", ".svgz", ".SVGZ"]
     image_files = [f for f in images_path.iterdir() if f.suffix.lower() in image_extensions]
 
     if not image_files:
@@ -171,7 +212,10 @@ def process_llm_images(images_folder, output_folder, norm_range=1000, LABEL_CLAS
         frame_bytes, frame, frame_height, frame_width = result
 
         # Detect person from Gemini model
-        PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES), norm_range)
+        if gt:
+            PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES), norm_range)
+        else:
+            PROMPT = img_multi_prompt(list(LABEL_CLASSES), norm_range)
         detections, response = gem_response(frame_bytes, MODEL_ID, PROMPT)
 
         if detections is None:
@@ -333,7 +377,7 @@ def convert_to_yolo(bb_box:list, image_height:int, image_width:int, norm_range:i
     return yolo_boxes
 
 
-def process_llm_map(map_path: str, pixel_dims: bool = False, norm_range: int = 1000, tolerance: float = 0.02):
+def process_llm_map(map_path: str, gt_map_path: str, gt_dir:str, trials_name: str, pixel_dims: bool = False, norm_range: int = 1000, tolerance: float = 0.02):
     # Find Width and Height of the new image size variants of the LLM
     variants_json = {}
     gt_box, widthg, heightg, variants = extract_gt(gt_map_path)
@@ -399,19 +443,89 @@ def process_llm_map(map_path: str, pixel_dims: bool = False, norm_range: int = 1
     return map_path
 
 
-def test_llm_process(pixel_dims: bool = False, norm_range: int = 1000, LABEL_CLASSES = {"person"}, gt:bool = False):
-    trials = 3 # number of runs to average over, set to 1 for no averaging (just one run)
-    for trial in range(1, trials + 1):
-        folder_path= f"{gt_dir}/llm_images test {trial}"
-        os.makedirs(folder_path, exist_ok=True)
-        process_llm_images(gt_images_dir, folder_path, norm_range=norm_range, LABEL_CLASSES=LABEL_CLASSES, gt=gt)
-    map_path = process_llm_map(master_map_path, pixel_dims=pixel_dims, norm_range=norm_range, tolerance=0.02)
-    draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
+def copy_images(images_dir: str, folder_path: str, main_dir:str, add_extended:bool=False):
+    if add_extended:
+        horiz_dir = f"{main_dir}/horizontal"
+
+        # Copy horizontal images
+        for img_file in os.listdir(horiz_dir):
+            src_path = os.path.join(horiz_dir, img_file)
+            filename, ext = os.path.splitext(os.path.basename(src_path))
+
+            if not os.path.isfile(src_path):
+                continue
+
+            if not filename.endswith("_horiz"):
+                continue
+
+            dst_path = os.path.join(images_dir, img_file)
+
+            if os.path.exists(dst_path):
+                print(f"Skipping {img_file} (already exists in images_dir)")
+                continue
+
+            shutil.copy(src_path, dst_path)
+        else:
+            print("Only copy images from the directory")
+
+    # Copy original images from main_dir
+    for img_file in os.listdir(main_dir):
+        src_path = os.path.join(main_dir, img_file)
+
+        if not os.path.isfile(src_path):
+            continue
+
+        if not img_file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".dib", ".tif", ".tiff", ".webp", ".avif", ".svg", ".svgz")):
+            continue
+
+        dst_path = os.path.join(images_dir, img_file)
+
+        if os.path.exists(dst_path):
+            print(f"Skipping {img_file} (already exists in images_dir)")
+            continue
+
+        shutil.copy(src_path, dst_path)
+
+
+def auto_llm_process(pixel_dims: bool = False, norm_range: int = 1000, LABEL_CLASSES = {"person"}, gt:bool = False):
+    main_dir = "datasets/neo_weapons"
+    images_dir = f"{main_dir}/images" # datasets/neo_weapons/images
+    add_extended = True # True = Add horizontal and original images, False = Only use current images in folder
+    folder_path= f"{main_dir}/image_annotations"
+    llm_dir = f"{main_dir}/llm_images"
+    os.makedirs(main_dir, exist_ok=True)
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(folder_path, exist_ok=True)
+    os.makedirs(llm_dir, exist_ok=True)
+    """
+    trials_name = f"image_annotations *" # Main name and contains each test trial run
+    gt_images_dir = f"{gt_dir}"
+    llm_map_path = f"{gt_dir}/size_reference_map test 10.json"
+    gt_map_path = f"{gt_images_dir}/gt_mapping.json" # Ground truth mapping with scaled boxes for all image size variants
+    pattern = os.path.join(gt_dir, "size_reference_map*.json") # Grab all test runs for averaging
+    master_map_path = os.path.join(gt_dir, "llm_scaling_map.json")
+    images_dir = f"{gt_dir}"
+    llm_dir = f"{gt_dir}/llm_images"
+
+    # Create necessary folders
+    os.makedirs(gt_dir, exist_ok=True)
+    os.makedirs(llm_dir, exist_ok=True)
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(gt_images_dir, exist_ok=True)
+    """
+
+    # Copy images to new folder to process (dataset/images)
+    #copy_images(images_dir, folder_path, main_dir, add_extended)
+
+
+    process_llm_images(images_dir, folder_path, norm_range, LABEL_CLASSES)
+    #map_path = process_llm_map(master_map_path, pixel_dims=pixel_dims, norm_range=norm_range, tolerance=0.02)
+    #draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
 
 
 def main():
-    LABEL_CLASSES = {"person"}
-    test_llm_process(LABEL_CLASSES=LABEL_CLASSES)
+    LABEL_CLASSES = {"person", "hand", "gun", "smartphone", "knife"}
+    auto_llm_process(LABEL_CLASSES=LABEL_CLASSES)
 
 
 if __name__ == "__main__":

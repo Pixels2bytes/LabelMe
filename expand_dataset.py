@@ -179,18 +179,20 @@ def create_more_images_process(annotations_file, target_labels, ignore_labels, c
 
 
 def main():
-    #target_labels = ["gun", "knife", "smartphone"]
-    #ignore_labels = ["person", "hand"]
-    #annotations_file = "create dataset/dangerous_weapons/image_annotations_this.csv"
-    #img_dir = "datasets/neo_weapons"
+    target_labels = ["gun", "knife", "smartphone"]
+    ignore_labels = ["person", "hand"]
+    annotations_file = "create dataset/dangerous_weapons/image_annotations_this.csv"
+    img_dir = "datasets/neo_weapons"
     combo_labels = True # True = images with both target and ignore labels. False = only images with target labels and nothing else
     verbose = True
 
     # Test
+    """
     target_labels = ["cow"]
     ignore_labels = ["tree"]
     annotations_file = "resources/ground_truth/gt_images/gt_annon.csv"
-    img_dir = "resources/ground_truth/gt_images"
+    img_dir = "resources/ground_truth/gt_images
+    """
 
     create_more_images_process(annotations_file, target_labels, ignore_labels, combo_labels, img_dir, verbose)
 
