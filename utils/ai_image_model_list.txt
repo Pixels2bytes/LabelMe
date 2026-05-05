@@ -13,3 +13,4 @@ Claude% claude-3-5-sonnet-20241022,
 Claude% claude-opus-4-20250514,
 Claude% claude-sonnet-4-20250514,
 Gemini% gemini-robotics-er-1.5-preview
+Gemini% gemini-robotics-er-1.6-preview

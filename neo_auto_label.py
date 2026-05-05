@@ -24,7 +24,7 @@ from resize_dataset import resize_images_process
 INPUT_PRICE_PER_1M = 0.0  # Update with actual pricing
 OUTPUT_PRICE_PER_1M = 0.0  # Update with actual pricing
 
-MODEL_ID = "gemini-robotics-er-1.5-preview"
+MODEL_ID = "gemini-robotics-er-1.6-preview"
 # PROMPT = img_ground_truth_prompt(list(LABEL_CLASSES))
 load_dotenv(dotenv_path="utils/.env")
 PROJECT_NAME = os.getenv("PROJECT_NAME")
@@ -200,7 +200,7 @@ def process_llm_images(images_folder, output_folder, norm_range=1000, LABEL_CLAS
         # JSON check to skip already processed images
         json_path = f"{output_folder}/{img_file.stem}.json"
         if os.path.exists(json_path):
-            print(f"\nSkipping {img_file.name} (JSON already exists)")
+            #print(f"\nSkipping {img_file.name} (JSON already exists)")
             continue
 
         print(f"\nProcessing image {idx}/{len(image_files)}: {img_file.name}")
@@ -517,15 +517,24 @@ def auto_llm_process(pixel_dims: bool = False, norm_range: int = 1000, LABEL_CLA
     # Copy images to new folder to process (dataset/images)
     #copy_images(images_dir, folder_path, main_dir, add_extended)
 
-
     process_llm_images(images_dir, folder_path, norm_range, LABEL_CLASSES)
+
+    return main_dir, images_dir, folder_path, norm_range
+2
+def process_dataset_ready(main_dir, images_dir, folder_path, norm_range, LABEL_CLASSES, verbsoe:bool=False):
+    # Get all JSON files from folder_path and create YOLO annotation files
+    
+    # bb_box = [[y1, x1, y2, x2], [y1, x1, y2, x2], ...] # List of bounding boxes from json file]
+    #convert_to_yolo(bb_box, image_height, image_width, norm_range) # y1, x1, y2, x2
     #map_path = process_llm_map(master_map_path, pixel_dims=pixel_dims, norm_range=norm_range, tolerance=0.02)
     #draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
+    return
 
 
 def main():
     LABEL_CLASSES = {"person", "hand", "gun", "smartphone", "knife"}
-    auto_llm_process(LABEL_CLASSES=LABEL_CLASSES)
+    main_dir, images_dir, folder_path, norm_range = auto_llm_process(LABEL_CLASSES=LABEL_CLASSES)
+    process_dataset_ready(main_dir, images_dir, folder_path, norm_range, LABEL_CLASSES)
 
 
 if __name__ == "__main__":
