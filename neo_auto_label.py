@@ -520,21 +520,96 @@ def auto_llm_process(pixel_dims: bool = False, norm_range: int = 1000, LABEL_CLA
     process_llm_images(images_dir, folder_path, norm_range, LABEL_CLASSES)
 
     return main_dir, images_dir, folder_path, norm_range
-2
-def process_dataset_ready(main_dir, images_dir, folder_path, norm_range, LABEL_CLASSES, verbsoe:bool=False):
+
+
+def process_dataset_ready(main_dir, images_dir, folder_path, norm_range, ASSIGN_INDEX, LABEL_CLASSES, verbsoe:bool=False):
+    horiz_dir = f"{main_dir}/horizontal"
+    orig_dir = f"{main_dir}/original"
+    anno_dir = f"{main_dir}/image_annotations"
+    labels_dir = f"{main_dir}/labels"
+    os.makedirs(labels_dir, exist_ok=True)
+
+    image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".JPG", ".JPEG", ".PNG", ".BMP", ".avif", ".AVIF", ".webp", ".WEBP", ".tif", ".tiff", ".TIF", ".TIFF", ".svg", ".SVG", ".svgz", ".SVGZ"]
+    imageo_files = []
+    imageh_files = []
+
+    if not orig_dir:
+        print(f"Error: Images folder {orig_dir} does not exist")
+    else:
+        orig_path = Path(orig_dir)
+        imageo_files = [f for f in orig_path.iterdir() if f.suffix.lower() in image_extensions]
+    if not horiz_dir:
+        print(f"Error: Images folder {horiz_dir} does not exist")
+    else:
+        horiz_path = Path(horiz_dir)
+        imageh_files = [f for f in horiz_path.iterdir() if f.suffix.lower() in image_extensions]
+    if not images_dir:
+        print(f"Error: Images folder {images_dir} does not exist")
+        return
+
     # Get all JSON files from folder_path and create YOLO annotation files
+    images_path = Path(images_dir)
+    image_files = [f for f in images_path.iterdir() if f.suffix.lower() in image_extensions]
+
+    if not image_files:
+        print(f"No images found in {images_dir}")
+        return
     
+    for idx, img_file in enumerate(image_files, 1):
+        # Check if .txt file is already created
+        labels_path = f"{labels_dir}/{img_file.stem}"
+        # Check for json
+        json_path = f"{anno_dir}/{img_file.stem}.json"
+        print(f"{img_file.stem}")
+        if os.path.exists(json_path):
+            print(f"\nProcessing image {idx}/{len(image_files)}: {img_file.name}")
+            result = image_to_bytes(img_file)
+            if result is None:
+                continue
+
+            frame_bytes, frame, frame_height, frame_width = result
+            data = load_gt_mapping(json_path) # Get json data
+            # Get every label and bounding box in the json
+            labels = data["label"]
+            bbox = data["bbox"]
+            #norm_num = data["normalized_range"]
+        
+            # Convert all bounding coordinates from 0 -1000 to 0 - 1
+            yolo_boxes = convert_to_yolo([bbox], frame_height, frame_width, norm_range) # y1, x1, y2, x2
+            for label in zip(labels, yolo_boxes):
+                class_id = ASSIGN_INDEX[label]
+            # Save to .txt for yolo
+            with open(labels_path, "a") as yolo_f:
+                yolo_f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {frame_height} {frame_width}\n")
+            
+            # Draw to verify
+            #draw_boxes(labels, bbox, images_dir, main_dir, )
+            
+            # Check original folder for like images and repeat
+            #search imageo_files only for img_file.stem
+            # loop through creating yolo txt file for them with yolo info
+            # Check horizontal folder for like images pattern = "_horiz" and repeat
+            #search imageh_files only for img_file.stem
+        
+
     # bb_box = [[y1, x1, y2, x2], [y1, x1, y2, x2], ...] # List of bounding boxes from json file]
-    #convert_to_yolo(bb_box, image_height, image_width, norm_range) # y1, x1, y2, x2
-    #map_path = process_llm_map(master_map_path, pixel_dims=pixel_dims, norm_range=norm_range, tolerance=0.02)
+
     #draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
     return
 
 
 def main():
     LABEL_CLASSES = {"person", "hand", "gun", "smartphone", "knife"}
+    ASSIGN_INDEX = {
+    'person': 0,
+    'gun': 1,
+    'smartphone': 2,
+    'hand': 3,
+    'knife': 4
+    }
+    norm_range = 1000
     main_dir, images_dir, folder_path, norm_range = auto_llm_process(LABEL_CLASSES=LABEL_CLASSES)
-    process_dataset_ready(main_dir, images_dir, folder_path, norm_range, LABEL_CLASSES)
+    process_dataset_ready(main_dir, images_dir, folder_path, norm_range, ASSIGN_INDEX, LABEL_CLASSES)
 
 
 if __name__ == "__main__":
