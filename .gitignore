@@ -219,3 +219,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# WAR / MAR working notes.
+# Local-only: informal working context (decisions, blockers, chat-agreed tasks)
+# that feeds the Weekly and Monthly Activity Reports. The reports themselves are
+# the shared record and are archived to WARs ON MARs; these notes are not.
+war-notes/
+rules/
