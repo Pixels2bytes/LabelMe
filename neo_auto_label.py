@@ -522,27 +522,105 @@ def auto_llm_process(pixel_dims: bool = False, norm_range: int = 1000, LABEL_CLA
     return main_dir, images_dir, folder_path, norm_range
 
 
-def process_dataset_ready(main_dir, images_dir, folder_path, norm_range, ASSIGN_INDEX, LABEL_CLASSES, verbsoe:bool=False):
+def draw_box_check(image_path, label_path, save_dir, ASSIGN_INDEX):
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Load image
+    image = cv2.imread(str(image_path))
+    if image is None:
+        print(f"Failed to load image: {image_path}")
+        return
+
+    h, w = image.shape[:2]
+
+    # Reverse map for label names (optional)
+    index_to_label = {v: k for k, v in ASSIGN_INDEX.items()}
+
+    # If no label file, just save image
+    if not os.path.exists(label_path):
+        save_path = os.path.join(save_dir, Path(image_path).name)
+        cv2.imwrite(save_path, image)
+        return
+
+    # Read YOLO labels
+    with open(label_path, "r") as f:
+        lines = f.readlines()
+
+    for line in lines:
+        parts = line.strip().split()
+        if len(parts) != 5:
+            continue
+
+        class_id, x_center, y_center, bw, bh = parts
+        class_id = int(class_id)
+        x_center, y_center, bw, bh = map(float, (x_center, y_center, bw, bh))
+
+        # Convert YOLO → pixel coords
+        x_center *= w
+        y_center *= h
+        bw *= w
+        bh *= h
+
+        x_min = int(x_center - bw / 2)
+        y_min = int(y_center - bh / 2)
+        x_max = int(x_center + bw / 2)
+        y_max = int(y_center + bh / 2)
+
+        # Clamp to image bounds (safety)
+        x_min = max(0, x_min)
+        y_min = max(0, y_min)
+        x_max = min(w, x_max)
+        y_max = min(h, y_max)
+
+        # Draw rectangle
+        cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+
+        # Label text
+        label_name = index_to_label.get(class_id, str(class_id))
+        cv2.putText(
+            image,
+            label_name,
+            (x_min, max(0, y_min - 5)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            1,
+            cv2.LINE_AA
+        )
+
+    # Save image
+    save_path = os.path.join(save_dir, Path(image_path).name)
+    cv2.imwrite(save_path, image)
+
+
+def process_dataset_ready(main_dir, images_dir, folder_path, norm_range, ASSIGN_INDEX, LABEL_CLASSES, verbose:bool=False):
     horiz_dir = f"{main_dir}/horizontal"
     orig_dir = f"{main_dir}/original"
     anno_dir = f"{main_dir}/image_annotations"
     labels_dir = f"{main_dir}/labels"
+    save_dir=f"{main_dir}/verify_images"
     os.makedirs(labels_dir, exist_ok=True)
+    os.makedirs(save_dir, exist_ok=True)
 
     image_extensions = [".jpg", ".jpeg", ".png", ".bmp", ".JPG", ".JPEG", ".PNG", ".BMP", ".avif", ".AVIF", ".webp", ".WEBP", ".tif", ".tiff", ".TIF", ".TIFF", ".svg", ".SVG", ".svgz", ".SVGZ"]
     imageo_files = []
     imageh_files = []
 
-    if not orig_dir:
+    # ORiginal Folder + altered versions
+    if not os.path.exists(orig_dir):
         print(f"Error: Images folder {orig_dir} does not exist")
     else:
         orig_path = Path(orig_dir)
         imageo_files = [f for f in orig_path.iterdir() if f.suffix.lower() in image_extensions]
-    if not horiz_dir:
+    
+    # Horizontal folder + altered versions
+    if not os.path.exists(horiz_dir):
         print(f"Error: Images folder {horiz_dir} does not exist")
     else:
         horiz_path = Path(horiz_dir)
         imageh_files = [f for f in horiz_path.iterdir() if f.suffix.lower() in image_extensions]
+    
+    # MAin image folder
     if not images_dir:
         print(f"Error: Images folder {images_dir} does not exist")
         return
@@ -557,44 +635,75 @@ def process_dataset_ready(main_dir, images_dir, folder_path, norm_range, ASSIGN_
     
     for idx, img_file in enumerate(image_files, 1):
         # Check if .txt file is already created
-        labels_path = f"{labels_dir}/{img_file.stem}"
-        # Check for json
-        json_path = f"{anno_dir}/{img_file.stem}.json"
-        print(f"{img_file.stem}")
-        if os.path.exists(json_path):
-            print(f"\nProcessing image {idx}/{len(image_files)}: {img_file.name}")
-            result = image_to_bytes(img_file)
-            if result is None:
-                continue
-
-            frame_bytes, frame, frame_height, frame_width = result
-            data = load_gt_mapping(json_path) # Get json data
-            # Get every label and bounding box in the json
-            labels = data["label"]
-            bbox = data["bbox"]
-            #norm_num = data["normalized_range"]
+        labels_path = f"{labels_dir}/{img_file.stem}.txt"
         
-            # Convert all bounding coordinates from 0 -1000 to 0 - 1
-            yolo_boxes = convert_to_yolo([bbox], frame_height, frame_width, norm_range) # y1, x1, y2, x2
-            for label in zip(labels, yolo_boxes):
-                class_id = ASSIGN_INDEX[label]
-            # Save to .txt for yolo
-            with open(labels_path, "a") as yolo_f:
-                yolo_f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {frame_height} {frame_width}\n")
-            
-            # Draw to verify
-            #draw_boxes(labels, bbox, images_dir, main_dir, )
-            
-            # Check original folder for like images and repeat
-            #search imageo_files only for img_file.stem
-            # loop through creating yolo txt file for them with yolo info
-            # Check horizontal folder for like images pattern = "_horiz" and repeat
-            #search imageh_files only for img_file.stem
-        
+        if os.path.exists(labels_path):
+            if verbose:
+                print(f"\nSkipping {img_file.name} (YOLO txt already exists)")
+        else:
+            # Check for json
+            json_path = f"{anno_dir}/{img_file.stem}.json"
+            print(f"{img_file.stem}")
+            if os.path.exists(json_path):
+                print(f"\nProcessing image {idx}/{len(image_files)}: {img_file.name}")
+                result = image_to_bytes(img_file)
+                if result is None:
+                    continue
 
-    # bb_box = [[y1, x1, y2, x2], [y1, x1, y2, x2], ...] # List of bounding boxes from json file]
+                frame_bytes, frame, frame_height, frame_width = result
+                
+                # Get every label and bounding box in the json
+                data = load_gt_mapping(json_path) # Get json data
+                labels = [d["label"] for d in data["detections"]]
+                bbox = [d["bbox"] for d in data["detections"]]
+                #norm_num = data["normalized_range"]
+            
+                # Convert all bounding coordinates from 0 - 1000 to 0 - 1
+                yolo_boxes = convert_to_yolo(bbox, frame_height, frame_width, norm_range) # y1, x1, y2, x2
 
-    #draw_gtboxes(master_map_path, images_dir, (0, 0, 255), llm_dir, file_title="llm_verify_box", dataset_title="verify_box")
+                # Save to .txt for yolo
+                with open(labels_path, "w") as yolo_f:
+                    for lbl, box in zip(labels, yolo_boxes):
+                        if len(labels) != len(yolo_boxes):
+                            if verbose:
+                                print(f"Warning: mismatch in {json_path}")
+                        
+                        lbl = lbl.lower()
+
+                        if lbl not in ASSIGN_INDEX:
+                            if verbose:
+                                print(f"Unknown label '{lbl}' in {json_path}")
+                            continue
+
+                        class_id = ASSIGN_INDEX[lbl]
+                        x_center, y_center, box_width, box_height = box
+                        yolo_f.write(f"{class_id} {x_center:.6f} {y_center:.6f} {box_width:.6f} {box_height:.6f}\n")
+                draw_box_check(img_file, labels_path, save_dir, ASSIGN_INDEX)
+
+            # Search original image files (imageo_files) if img_file.stem is in name of file
+            """
+            o_paths = [
+                f"{labels_dir}/{p.stem}.txt"
+                for p in imageo_files
+                if p.stem.startswith(f"{img_file.stem}_gray")
+                or p.stem.startswith(f"{img_file.stem}_contrast")
+            ]
+            for new_path in o_paths:
+                shutil.copy(labels_path, new_path)
+                draw_box_check(new_path, labels_path, save_dir, ASSIGN_INDEX)
+
+            # Search horizontal image files (imageh_files) if img_file has pattern "_horiz" + extension
+            ext = img_file.suffix
+            if img_file.stem.endswith(f"_horiz{ext}"):
+                h_paths = [
+                    f"{labels_dir}/{p.stem}.txt"
+                    for p in imageh_files
+                    if p.stem.startswith(f"{img_file.stem}")
+                ]
+                for new_path in h_paths:
+                    shutil.copy(labels_path, new_path)
+                    draw_box_check(new_path, labels_path, save_dir, ASSIGN_INDEX)
+            """
     return
 
 
